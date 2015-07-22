@@ -1,15 +1,15 @@
 /*
  *   To do
  *   - Functionality
- *     - Automatically call gc() when appropriate
+ *     - Automatically call when appropriate
  *     - repair() should also repair index references to data pages
  *   - Style
  *     - Make the code Library-friendly
  *   - Optimisation
  *     - Scanning for reads and writes has been optimised with a cache. There is always room for more.
  *     - Garbage collection is erasing sectors multiple times, especially the lookup sectors.
- *     - The fat is expensive in memory. 150 files = 65kb. 
- *     - Put four lookup tables on every fourth block instead of one lookup table per block.
+ *     - Reduce wasted lookup sector or put four lookup tables on every fourth block instead of one lookup table per block.
+ *     - The fat is expensive in memory. 150 files = 100k of RAM. Can we reduce its size further?
  *   - Checks
  *     - Its probably going to be messy if we open a file (for writing) twice at a time.
  *     - Handle wraparound of the _lastId
@@ -21,25 +21,22 @@
 
 Inspired by Spiffs (https://github.com/pellepl/spiffs/blob/master/docs/TECH_SPEC)
 
-Physical Sector size = 4kb (smallest erasable part)
-Logical block size = 64kb (each block contains a lookup table in the first sector)
-Logical page size = 256b (each page contains a small header and data)
+Sector size = 4kb (smallest erasable part)
+Block size = 64kb (each block contains a lookup table in the first sector)
+Page size = 256b (each page contains a small header and data)
 
-Each object (file) has an object id which ties together the separated parts of the file
-Objects have one+ index pages and one+ data pages
+Each file has an id and a span which tie together the separated parts of the file
+Files have one+ index pages and one+ data pages
 The index page holds where the data pages are and the first index page also holds the filename and size
-Each logical page has 5 bytes of header (meta data) including:
+Each page has 5 bytes of header (meta data) including:
 - type: index or data
-- status: used, deleted, finalized, etc
-- object id 
+- status: used, deleted, etc
+- file id 
 - span index
 
-The first two pages of each block contains a lookup table - an array of object ids, one per logical page. 
+The first sector of each block contains a lookup table - an array of object ids, one per page. 
 Each id has one bit dedicated to the type (index or data).
 This way you can quickly find free data pages and index pages.
-We ended up wasting the whole first sector of each block because garbage collection was hard without it.
-
-object id = 1 ... 64k/2-1 = 32,766. 0x0000 means deleted, 0xffff means free, mask 0x8000 means index.
 
 */
 
@@ -52,7 +49,7 @@ class SPIFlashFileSystem {
     _start = null;
     _end = null;
     _len = null;
-    
+
     _blocks = 0;
     _sectors = 0;
     _pages = 0;
@@ -62,7 +59,11 @@ class SPIFlashFileSystem {
     _lastId = 0;
 
     _fat = null;
+    _fatStats = null;
     _openFiles = null;
+    
+    _autoGcMaxFree = 64;
+    _autoGcMinFree = 16;
     
     _pageCache = null;
     _freePageCache = null;
@@ -130,6 +131,8 @@ class SPIFlashFileSystem {
         _blocks = _len / SFFS_BLOCK_SIZE;
         _sectors = _len / SFFS_SECTOR_SIZE;
         _pages = _len / SFFS_PAGE_SIZE;
+        
+        _fatStats = { lookup = 0, free = 0, used = 0, erased = 0 };
 
     }
     
@@ -145,13 +148,15 @@ class SPIFlashFileSystem {
         _pageCache = {};
         _freePageCache = [];
         
-        _scan(function(file) {
+        _fatStats = _scan(function(file) {
             // server.log(Utils.logObj(file));
             assert(file != null && file.fname != null);
             _fat[file.fname] <- file;
             if (file.id > _lastId) _lastId = file.id; 
             if (callback) callback(file);
         }.bindenv(this))
+        
+        // server.log("FAT stats: " + Utils.logObj(_fatStats))
 
     }
     
@@ -165,6 +170,9 @@ class SPIFlashFileSystem {
     //--------------------------------------------------------------------------
     function eraseFile(fname) {
         if (!(fname in _fat)) throw "Can't find file '" + fname + "' to erase";
+        foreach (ptr,file in _openFiles) {
+            if (file == _fat[fname]) throw "Can't erase open file '" + fname + "'";
+        }
         
         // server.log("Erasing " + fname)
         local file = _fat[fname];
@@ -180,6 +188,10 @@ class SPIFlashFileSystem {
             // server.log("+ Data @ " + page);
             local res = _flash.write(page, zeros, SFFS_SPIFLASH_VERIFY);
             assert(res == 0);
+            
+            // Update the stats
+            _fatStats.erased++;
+            _fatStats.used--;
         }
         
         // Zero out the index pages
@@ -187,6 +199,10 @@ class SPIFlashFileSystem {
             // server.log("+ Index @ " + page);
             local res = _flash.write(page, zeros, SFFS_SPIFLASH_VERIFY);
             assert(res == 0);
+            
+            // Update the stats
+            _fatStats.erased++;
+            _fatStats.used--;
         }
 
         // Zero out the lookup pages in any block that matches the file id
@@ -230,6 +246,9 @@ class SPIFlashFileSystem {
     
     //--------------------------------------------------------------------------
     function eraseAll() {
+        
+        if (_openFiles.len() > 0) return server.error("Can't call eraseAll() with open files");
+        
         // Format all the sectors
         _enable()
         for (local i = 0; i < _sectors; i++) {
@@ -243,6 +262,10 @@ class SPIFlashFileSystem {
         _openFiles = {};
         _pageCache = {};
         _freePageCache = [];
+        _fatStats = { lookup = _blocks*SFFS_PAGES_PER_SECTOR, 
+                      free   = _blocks*(SFFS_PAGES_PER_BLOCK - SFFS_PAGES_PER_SECTOR), 
+                      used = 0, 
+                      erased = 0 };
         
         _lastFilePtr = 0;
         _lastId = 0;
@@ -319,6 +342,248 @@ class SPIFlashFileSystem {
     
     
     //--------------------------------------------------------------------------
+    function gc(initCallback = null) {
+        
+        if (_openFiles.len() > 0) return server.error("Can't call gc() with open files");
+
+        _enable();
+        
+        // Scan the storage collecting garbage stats
+        local scan = _gc_scan();
+
+        // Move all the used pages away from the erased pages
+        for (local s = 0; s < _sectors; s++) {
+            
+            // Does this sector have anything to collect
+            if (scan.erased[s] > 0 && scan.used[s] <= scan.stats.free) {
+                
+                local sector = s * SFFS_SECTOR_SIZE;
+                local block = _getBlockFromAddr(sector);
+                
+                if (scan.erased[s] > 0) {
+
+                    // We may have stuff to move
+                    // server.log(format("Moving %d pages from sector %d to recover %d erased pages", scan.used[s], s, scan.erased[s]))
+                    
+                }
+                
+                if (scan.used[s] > 0) {
+                    
+                    // Read the lookup data
+                    local lookupData = _readLookupPage(block, true);
+    
+                    // Grab the free pages from another sector 
+                    local freePages = _nextFreePage(scan.used[s], sector);
+                    // server.log(format("Requested %d free pages and got %d", stats.used[s], freePages.len()))
+    
+                    // Skip straight to the sector's lookup
+                    for (local i = 0; i < lookupData.count && scan.used[s] > 0; i++) {
+            
+                        local lookup = _getLookupData(lookupData, i);
+                        
+                        // This is not from the sector we are looking at 
+                        if (_getSectorFromAddr(lookup.page) != sector) {
+                            continue;
+                        } 
+                        
+                        // server.log("Data for lookup of page " + lookup.page + " sector " + sector + " in block " + block + " stat " + lookup.stat);
+
+                        // These aren't interesting pages
+                        if (lookup.stat == SFFS_LOOKUP_STAT_FREE) {
+                            // server.log(format("- Skipping empty page %d", lookup.page))
+                            continue;
+                        } else if (lookup.stat == SFFS_LOOKUP_STAT_ERASED) {
+                            // server.log(format("- Skipping erased page %d", lookup.page))
+                            continue;
+                        }
+
+                        // Pop a free page off the list
+                        local freePage = freePages[0];
+                        freePages.remove(0);
+
+                        local s_free = _getSectorFromAddr(freePage) / SFFS_SECTOR_SIZE;
+                        local s_lookup = _getSectorFromAddr(lookup.page) / SFFS_SECTOR_SIZE;
+
+                        // Read the next page and if it is "used" then move it
+                        if (lookup.stat == SFFS_LOOKUP_STAT_INDEX) {
+                            
+                            // server.log(format("+ Moving %s page %02x (sector %02x) to %02x (sector %02x)",  "index", lookup.page, s_lookup, freePage, s_free))
+    
+                            // Copy the data over
+                            _copyPage(lookup.page, freePage, lookup);
+                            
+                            // Finally, erase the original page
+                            _erasePage(lookup.page);
+                            
+                        } else if (lookup.stat == SFFS_LOOKUP_STAT_DATA) {
+                            
+                            // server.log(format("+ Moving %s page %02x (sector %02x) to %02x (sector %02x)", "data", lookup.page, s_lookup, freePage, s_free))
+
+                            // Copy the data over
+                            _copyPage(lookup.page, freePage, lookup);
+                            
+                            // Finally, erase the original page
+                            _erasePage(lookup.page);
+                            
+                        } else {
+                            continue;
+                        }
+                        
+                        
+                        // Adjust the sector counts
+                        scan.used[s_free]++;
+                        scan.used[s_lookup]--;
+                        scan.erased[s_lookup]++;
+                        scan.stats.erased++;
+                        scan.stats.free--;
+
+                    }
+                }
+                
+                // Now we can erase the sector and correct the lookup table
+                if (scan.used[s] == 0 && scan.erased[s] > 0) {
+                    
+                    // server.log(format("+ Erasing sector %d (data at page %02x, lookup at page %02x)", s, sector, block));
+                    
+                    // Read in the old lookup table and erase the sector from it
+                    local lookupData = _flash.read(block, 2 * SFFS_PAGE_SIZE);
+                    local start = 2 * (sector - block) / SFFS_PAGE_SIZE;
+                    
+                    lookupData.seek(start);
+                    for (local i = 0; i < SFFS_PAGES_PER_SECTOR; i++) {
+                        lookupData.writen(SFFS_LOOKUP_FREE, 'w');
+                    }
+
+                    // Rewrite the lookup table
+                    _flash.erasesector(block); imp.sleep(0.05);
+                    lookupData.seek(0);
+                    local res = _flash.write(block, lookupData, SFFS_SPIFLASH_VERIFY);
+                    assert(res == 0);
+
+                    // Perform the erase of the data sector
+                    _flash.erasesector(sector); imp.sleep(0.05);
+
+                    // Update the stats
+                    scan.free[s] += scan.used[s] + scan.erased[s];
+                    scan.used[s] = 0;
+                    scan.erased[s] = 0;
+                
+                } else {
+                    
+                    // server.log(format("+ NOT Erasing sector %d because used %d erased %d", s, scan.used[s], scan.erased[s]));
+                    
+                }
+            }
+        }
+        
+        _disable();
+        
+        // Rescan the result
+        _fatStats = _gc_scan();
+        
+        // Reinitialise the file system 
+        init(initCallback);
+        
+    }
+    
+    
+    //--------------------------------------------------------------------------
+    function repair(initCallback = null) {
+       
+        if (_openFiles.len() > 0) return server.error("Can't call repair() with open files");
+        
+        _enable();
+        
+        // Repair the lookup tables by reading the contents of every page
+        local lookupData = blob(2 * SFFS_PAGE_SIZE);
+        local lookupWord;
+        for (local b = 0; b < _blocks; b++) {
+            
+            // 
+            local block = _start + (b * SFFS_BLOCK_SIZE);
+            lookupData.seek(0);
+
+            // Read the pages
+            for (local p = 0; p < SFFS_PAGES_PER_BLOCK; p++) {
+
+                local page = block + (p * SFFS_PAGE_SIZE);
+                if (page < block + SFFS_SECTOR_SIZE) {
+                    
+                    // server.log("SKIP: " + block + ", " + page)
+                    
+                    // This is from the first sector, which is lookup data
+                    lookupWord = SFFS_LOOKUP_ERASED;
+                    
+                } else {
+                    
+                    // server.log("KEEP: " + block + ", " + page)
+                    
+                    // This is a data or index page
+                    local data = _readDataPage(page);
+                    
+                    if ((data.flags & SFFS_FLAGS_INDEX) == SFFS_FLAGS_INDEX) {
+                        // This page has an index
+                        lookupWord = data.id | SFFS_LOOKUP_MASK_INDEX;
+                    } else if ((data.flags & SFFS_FLAGS_DATA) == SFFS_FLAGS_DATA) {
+                        // This page has data
+                        lookupWord = data.id;
+                    } else if (data.flags == SFFS_FLAGS_FREE) {
+                        // This page is free
+                        lookupWord = SFFS_LOOKUP_FREE;
+                    } else {
+                        // This page is deleted
+                        lookupWord = SFFS_LOOKUP_ERASED;
+                    }
+                }
+                
+                // Add the word to the lookup data
+                lookupData.writen(lookupWord, 'w')
+
+            }
+            
+            // Now erase and rewrite the lookup table
+            // server.log("Repairing block " + b)
+            _flash.erasesector(block); imp.sleep(0.05);
+            lookupData.seek(0);
+            local res = _flash.write(block, lookupData, SFFS_SPIFLASH_VERIFY);
+            assert(res == 0);
+        }
+
+        _disable();
+        
+        // Now reinitialise the FAT
+        init(initCallback);
+
+    }
+    
+    
+    //--------------------------------------------------------------------------
+    function setAutoGc(maxPages, minPages = null) {
+        
+        // Override the default auto garbage collection settings
+        if (maxPages != null) _autoGcMaxFree = maxPages;
+        if (minPages != null) _autoGcMinFree = minPages;
+        
+    }
+    
+    
+    //--------------------------------------------------------------------------
+    function _autoGc() {
+
+        // Is it worth gc'ing? If so, start it.
+        if (_openFiles.len() == 0 
+         && _fatStats.free > 0
+         && _fatStats.free <= _autoGcMaxFree 
+         && _fatStats.free >= _autoGcMinFree 
+         && _fatStats.erased > 0) {
+            server.log("Automatically starting garbage collection");
+            gc();
+        }
+        
+    }
+    
+    
+    //--------------------------------------------------------------------------
     function _close(fileptr) {
 
         // If the file has changed, write the final results to the filesystem
@@ -345,6 +610,10 @@ class SPIFlashFileSystem {
             if (file.id in _pageCache) {
                 _pageCache[file.id].psIdx[0] <- psIdx[0];
             }
+    
+            // Update the stats
+            _fatStats.erased++;
+            _fatStats.free--;
             
         }
 
@@ -378,6 +647,10 @@ class SPIFlashFileSystem {
                     if (file.id in _pageCache) {
                         _pageCache[file.id].psIdx[span] <- index;
                     }
+                    
+                    // Update the stats
+                    _fatStats.used++;
+                    _fatStats.free--;
                 }
                 
                 // Now write the index, possible over the previous one.
@@ -389,6 +662,8 @@ class SPIFlashFileSystem {
         // Now drop the file pointer;
         delete _openFiles[fileptr];
         
+        // Auto garbage collect if required
+        _autoGc()
     }
     
     
@@ -440,6 +715,177 @@ class SPIFlashFileSystem {
 
 
     //--------------------------------------------------------------------------
+    function _readLookupPage(block, withRaw = false) {
+
+        
+        // Read the first two page (the lookup table)
+        _enable();
+        local lookupData = _flash.read(block, 2 * SFFS_PAGE_SIZE);
+        _disable();
+
+        // Skip past the first 2x16 bytes, which are the lookup pages (the whole first sector)
+        local page = block + SFFS_SECTOR_SIZE;
+        lookupData.seek(2 * SFFS_PAGES_PER_SECTOR); 
+        
+        // Store this in a table of arrays instead of an array of tables.
+        // An array of tables eats up all available memory.
+        local lookupPages = { count = 0, id = [], stat = [], page = [], addr = [], raw = [] };
+        while (!lookupData.eos()) {
+            
+            // Read the next page
+            local addr = block + lookupData.tell();
+            local objData = lookupData.readn('w');
+            
+            lookupPages.count++;
+            lookupPages.page.push(page);
+            lookupPages.addr.push(addr);
+            lookupPages.id.push(objData & SFFS_LOOKUP_MASK_ID);
+            if (withRaw) lookupPages.raw.push(objData);
+            
+            if (objData == SFFS_LOOKUP_FREE) {
+                lookupPages.stat.push(SFFS_LOOKUP_STAT_FREE);
+            } else if (objData == SFFS_LOOKUP_ERASED) {
+                lookupPages.stat.push(SFFS_LOOKUP_STAT_ERASED);
+            } else if ((objData & SFFS_LOOKUP_MASK_INDEX) == SFFS_LOOKUP_MASK_INDEX) {
+                lookupPages.stat.push(SFFS_LOOKUP_STAT_INDEX);
+            } else {
+                lookupPages.stat.push(SFFS_LOOKUP_STAT_DATA);
+            }
+
+            // Move forward
+            page += SFFS_PAGE_SIZE;
+        }
+        
+        return lookupPages;
+        
+    }
+    
+
+    //--------------------------------------------------------------------------
+    function _getLookupData(lookupPages, i) {
+        local lookup = {};
+        lookup.id <- lookupPages.id[i];
+        lookup.stat <- lookupPages.stat[i];
+        lookup.page <- lookupPages.page[i];
+        lookup.addr <- lookupPages.addr[i];
+        if (lookupPages.raw.len() > 0) lookup.raw <- lookupPages.raw[i];
+        return lookup;
+    }
+    
+    
+    //--------------------------------------------------------------------------
+    function _readIndexPage(indexPage, withRaw = false) {
+        
+        _enable();
+        
+        // Read the index page and parse the header
+        local indexData = _flash.read(indexPage, SFFS_PAGE_SIZE);
+        // server.log("indexData at " + indexPage + " is: " + Utils.logBin(indexData.tostring().slice(0, 12)));
+        
+        local index = {};
+        index.flags <- indexData.readn('b');
+        index.id <- indexData.readn('w'); // This should match the previous id
+        index.span <- indexData.readn('w');
+        if (index.span == 0) {
+            index.size <- indexData.readn('i');
+            local fnameLen = indexData.readn('b');
+            index.fname <- indexData.readstring(fnameLen);
+        }
+        index.header <- indexData.tell();
+        if (withRaw) index.raw <- indexData;
+
+        // Read the page numbers if there are any left
+        // NOTE: This is a very slow operation and would be much faster if it was left as a blob. 
+        //       But this takes lots of hard changes elsewhere.
+        index.dataPages <- [];
+        while (indexData.len() - indexData.tell() >= 2) {
+            local dataIdx = indexData.readn('w');
+            if (dataIdx != SFFS_LOOKUP_ERASED && dataIdx != SFFS_LOOKUP_FREE) {
+                index.dataPages.push(dataIdx * SFFS_PAGE_SIZE);
+                // server.log(format("* Found dataPage %02x on index %02x for id %d", (dataPageOffset * SFFS_PAGE_SIZE), indexPage, index.id))
+            }
+        }
+
+        _disable();
+        
+        return index;
+    }
+
+
+    //--------------------------------------------------------------------------
+    function _readPageHeader(page) {
+        
+        assert(page < _end);
+
+        _enable();
+
+        // Read the header
+        local headerBlob = _flash.read(page, SFFS_HEADER_SIZE+5);
+        
+        // Parse the header
+        local headerData = {};
+        headerData.flags <- headerBlob.readn('b');
+        headerData.id <- headerBlob.readn('w'); 
+        headerData.span <- headerBlob.readn('w');
+        
+        if (headerData.flags == SFFS_FLAGS_FREE) {
+            
+            // This page is free
+            headerData.type <- SFFS_LOOKUP_STAT_FREE;
+            
+        } else if (headerData.flags & SFFS_FLAGS_INDEX) {
+
+            // This page is an index
+            headerData.type <- SFFS_LOOKUP_STAT_INDEX;
+            if (headerData.span == 0) {
+                // This page is a index header specifically
+                headerData.size <- headerBlob.readn('i');
+                local fnameLen = headerBlob.readn('b');
+                headerData.fname <- _flash.read(page+SFFS_HEADER_SIZE+5, fnameLen).tostring();
+            }
+            
+        } else if (headerData.flags & SFFS_FLAGS_DATA) {
+            
+            // This page has data
+            headerData.type <- SFFS_LOOKUP_STAT_DATA;
+            
+        } else {
+            
+            // This page is deleted
+            headerData.type <- SFFS_LOOKUP_STAT_ERASED;
+            
+        }  
+        
+        _disable();
+        return headerData;
+    }
+    
+    
+    //--------------------------------------------------------------------------
+    function _readDataPage(dataPage, withData = false) {
+        
+        assert(dataPage < _end);
+
+        _enable();
+
+        local dataBlob = _flash.read(dataPage, withData ? SFFS_PAGE_SIZE : SFFS_HEADER_SIZE);
+        
+        // Parse the header
+        local data = {};
+        data.flags <- dataBlob.readn('b');
+        data.id <- dataBlob.readn('w'); 
+        data.span <- dataBlob.readn('w');
+        
+        if (withData) {
+            data.data <- dataBlob.readblob(SFFS_PAGE_SIZE - 5);
+        }
+        
+        _disable();
+        return data;
+    }
+    
+    
+    //--------------------------------------------------------------------------
     function _write(fileptr, data) {
 
         // Make sure we have a blob
@@ -477,6 +923,10 @@ class SPIFlashFileSystem {
             
             _writeIndexPage(file, index);
 
+            // Update the stats
+            _fatStats.used++;
+            _fatStats.free--;
+
         }
         
         // Now write all the data
@@ -499,7 +949,11 @@ class SPIFlashFileSystem {
                 if (file.id in _pageCache) {
                     _pageCache[file.id].psDat[file.lsDat] <- file.pgNxt;
                 }
-                
+
+                // Update the stats
+                _fatStats.erased++;
+                _fatStats.free--;
+
             } else {
                 // server.log("Same page, span " + file.lsDat + " at " + file.pgNxt);
             }
@@ -642,19 +1096,20 @@ class SPIFlashFileSystem {
 
     //--------------------------------------------------------------------------
     function _addPageToCache(page, cache) {
+        
+        // Check if it is already in the page cache
         local page = page / SFFS_PAGE_SIZE;
-        local found = false;
         cache.seek(0);
         while (!cache.eos()) {
             if (page == cache.readn('w')) {
-                found = true;
-                break;
+                return;
             }
         }
-        if (!found) {
-            cache.seek(0, 'e');
-            cache.writen(page, 'w');
-        }
+        
+        // It wasn't in the cache so add it
+        cache.seek(0, 'e');
+        cache.writen(page, 'w');
+        
     }
     
 
@@ -679,6 +1134,9 @@ class SPIFlashFileSystem {
         local res = _flash.write(lookup, lookupData, SFFS_SPIFLASH_VERIFY);
         assert(res == 0);
 
+        // Update the FAT
+        _updateFilePages(page);
+        
         _disable();
     }
 
@@ -775,6 +1233,10 @@ class SPIFlashFileSystem {
                 local index = _nextFreePage();
                 _writeIndexPage(lookup, index, [dstPage], last_span+1);
                 // server.log(format("- Writing index span %d for id %d at %02x in block %02x", last_span+1, lookup.id, index, block))
+                
+                // Update the stats
+                _fatStats.used++;
+                _fatStats.free--;
 
             }
             
@@ -787,282 +1249,6 @@ class SPIFlashFileSystem {
 
 
     //--------------------------------------------------------------------------
-    function _enable() {
-        if (_enables++ == 0) {
-            _flash.enable();
-        }
-    }    
-    
-    
-    //--------------------------------------------------------------------------
-    function _disable() {
-        if (--_enables <= 0)  {
-            _enables = 0;
-            _flash.disable();
-        }
-    }    
-    
-
-    //--------------------------------------------------------------------------
-    function _readLookupPage(block, withRaw = false) {
-
-        
-        // Read the first two page (the lookup table)
-        _enable();
-        local lookupData = _flash.read(block, 2 * SFFS_PAGE_SIZE);
-        _disable();
-
-        // Skip past the first 2x16 bytes, which are the lookup pages (the whole first sector)
-        local page = block + SFFS_SECTOR_SIZE;
-        lookupData.seek(2 * SFFS_PAGES_PER_SECTOR); 
-        
-        // Store this in a table of arrays instead of an array of tables.
-        // An array of tables eats up all available memory.
-        local lookupPages = { count = 0, id = [], stat = [], page = [], addr = [], raw = [] };
-        while (!lookupData.eos()) {
-            
-            // Read the next page
-            local addr = block + lookupData.tell();
-            local objData = lookupData.readn('w');
-            
-            lookupPages.count++;
-            lookupPages.page.push(page);
-            lookupPages.addr.push(addr);
-            lookupPages.id.push(objData & SFFS_LOOKUP_MASK_ID);
-            if (withRaw) lookupPages.raw.push(objData);
-            
-            if (objData == SFFS_LOOKUP_FREE) {
-                lookupPages.stat.push(SFFS_LOOKUP_STAT_FREE);
-            } else if (objData == SFFS_LOOKUP_ERASED) {
-                lookupPages.stat.push(SFFS_LOOKUP_STAT_ERASED);
-            } else if ((objData & SFFS_LOOKUP_MASK_INDEX) == SFFS_LOOKUP_MASK_INDEX) {
-                lookupPages.stat.push(SFFS_LOOKUP_STAT_INDEX);
-            } else {
-                lookupPages.stat.push(SFFS_LOOKUP_STAT_DATA);
-            }
-
-            // Move forward
-            page += SFFS_PAGE_SIZE;
-        }
-        
-        return lookupPages;
-        
-    }
-    
-
-    //--------------------------------------------------------------------------
-    function _getLookupData(lookupPages, i) {
-        local lookup = {};
-        lookup.id <- lookupPages.id[i];
-        lookup.stat <- lookupPages.stat[i];
-        lookup.page <- lookupPages.page[i];
-        lookup.addr <- lookupPages.addr[i];
-        if (lookupPages.raw.len() > 0) lookup.raw <- lookupPages.raw[i];
-        return lookup;
-    }
-    
-    
-    //--------------------------------------------------------------------------
-    function _readIndexPage(indexPage, withRaw = false) {
-        
-        _enable();
-        
-        // Read the index page and parse the header
-        local indexData = _flash.read(indexPage, SFFS_PAGE_SIZE);
-        // server.log("indexData at " + indexPage + " is: " + Utils.logBin(indexData.tostring().slice(0, 12)));
-        
-        local index = {};
-        index.flags <- indexData.readn('b');
-        index.id <- indexData.readn('w'); // This should match the previous id
-        index.span <- indexData.readn('w');
-        if (index.span == 0) {
-            index.size <- indexData.readn('i');
-            local fnameLen = indexData.readn('b');
-            index.fname <- indexData.readstring(fnameLen);
-        }
-        index.header <- indexData.tell();
-        if (withRaw) index.raw <- indexData;
-        index.dataPages <- [];
-
-        // Read the page numbers if there are any left
-        while (indexData.len() - indexData.tell() >= 2) {
-            local dataPageOffset = indexData.readn('w');
-            if (dataPageOffset != SFFS_LOOKUP_ERASED && dataPageOffset != SFFS_LOOKUP_FREE) {
-                index.dataPages.push(dataPageOffset * SFFS_PAGE_SIZE);
-                // server.log(format("* Found dataPage %02x on index %02x for id %d", (dataPageOffset * SFFS_PAGE_SIZE), indexPage, index.id))
-            }
-        }
-
-        _disable();
-        
-        return index;
-    }
-
-
-    //--------------------------------------------------------------------------
-    function _readDataPage(dataPage, withData = false) {
-        
-        assert(dataPage < _end);
-
-        _enable();
-
-        local dataBlob = _flash.read(dataPage, withData ? SFFS_PAGE_SIZE : SFFS_HEADER_SIZE);
-        
-        // Parse the header
-        local data = {};
-        data.flags <- dataBlob.readn('b');
-        data.id <- dataBlob.readn('w'); 
-        data.span <- dataBlob.readn('w');
-        
-        if (withData) {
-            data.data <- dataBlob.readblob(SFFS_PAGE_SIZE - 5);
-        }
-        
-        _disable();
-        return data;
-    }
-    
-    
-    //--------------------------------------------------------------------------
-    function _scan(callback) {
-
-        _enable();
-        
-        local files = {};
-        
-        // Scan the object lookup tables in each blocks, starting at a random block
-        local b_start = math.rand() % _blocks;
-        b_start = 0; // NOTE: Remove this
-        for (local b = 0; b < _blocks; b++) {
-            
-            local b_next = (b + b_start) % _blocks;
-            local block = _start + (b_next * SFFS_BLOCK_SIZE);
-            
-            // Read the lookup table
-            local lookupData = _readLookupPage(block);
-            
-            // Scan through the pages starting at a random location
-            local l_start = math.rand() % lookupData.count;
-            l_start = 0; // NOTE: Remove this
-            for (local i = 0; i < lookupData.count; i++) {
-
-                local l_next = (i + l_start) % lookupData.count;
-                local lookup = _getLookupData(lookupData, l_next);
-                if (lookup.stat == SFFS_LOOKUP_STAT_INDEX) {
-                    
-                    // Read the index page
-                    local index = _readIndexPage(lookup.page);
-                    
-                    // server.log(format("Found index id %d span %d at page %d named %s with %d data pages", index.id, index.span, lookup.page, ("fname" in index ? index.fname : "?"), index.dataPages.len()))
-                    if (index.id != lookup.id) {
-                        server.error("The index at page " + lookup.page + " is invalid.");
-                        continue;
-                    }
-
-                    // Read the page numbers
-                    local lsIdx = index.span, lsDat = 0, pgNxt = 0;
-                    foreach (dataPage in index.dataPages) {
-
-                        // Read the data header
-                        local data = _readDataPage(dataPage);
-
-                        // Track the highest data span
-                        if (data.span > lsDat) {
-                            lsDat = data.span;
-                            pgNxt = dataPage;
-                        }
-                        // server.log("Found span " + header.span + " at page " + dataPage);
-                    }
-                    
-                    // Store the new file data
-                    local file = null;
-                    if (!(lookup.id in files)) {
-                        
-                        // This is a new file, so create an entry
-                        file = { 
-                            id    = lookup.id, 
-                            fname = null,
-                            size  = 0,
-                            flags = SFFS_FLAGS_USED,
-                            lsIdx = 0,
-                            lsDat = 0, 
-                            pgNxt = pgNxt,
-                            pgsIdx = blob(),
-                            pgsDat = blob(),
-                        };
-                        files[lookup.id] <- file;
-                        
-                    } else {
-                        
-                        // We already have this file, so this is new info
-                        file = files[lookup.id];
-                    } 
-
-                    // Update the filename and size from the index
-                    if ("fname" in index) file.fname = index.fname;
-                    if ("size" in index) file.size = index.size == -1 ? 0 : index.size;
-
-                    // Track the page usage
-                    _addPageToCache(lookup.page, file.pgsIdx);
-                    
-                    // Update the last span values
-                    if (lsIdx > file.lsIdx) {
-                        file.lsIdx = lsIdx;
-                    }
-                    if (lsDat > file.lsDat) {
-                        file.lsDat = lsDat;
-                        file.pgNxt = pgNxt;
-                    }
-                    
-                } else if (lookup.stat == SFFS_LOOKUP_STAT_DATA) {
-
-                    // Store the new file data
-                    local file = null;
-                    if (!(lookup.id in files)) {
-                        
-                        // This is a new file, so create an entry
-                        file = { 
-                            id    = lookup.id, 
-                            fname = null,
-                            size  = 0,
-                            flags = SFFS_FLAGS_USED,
-                            lsIdx = 0,
-                            lsDat = 0, 
-                            pgNxt = 0,
-                            pgsIdx = blob(),
-                            pgsDat = blob(),
-                        };
-                        files[lookup.id] <- file;
-                        
-                    } else {
-                        
-                        // We already have this file, so this is new info
-                        file = files[lookup.id];
-                    } 
-
-                    // Track the page usage
-                    _addPageToCache(lookup.page, file.pgsDat);
-                    
-                }
-                
-            }
-        }
-
-        // We have completed the scan, call the callback
-        foreach (id, file in files) {
-            if (callback(file) == true) {
-                _disable();        
-                return;
-            }
-        }
-        
-        // If we have got to the end of the storage, we just need to disable and finish
-        _disable();        
-
-    }
-    
-    
-    //--------------------------------------------------------------------------
     function _getFileFromFileId(fileId) {
         foreach (fname,file in _fat) {
             if (file.id == fileId) return file;
@@ -1071,7 +1257,7 @@ class SPIFlashFileSystem {
 
 
     //--------------------------------------------------------------------------
-    function _updateFilePages(srcPage, dstPage) {
+    function _updateFilePages(srcPage, dstPage = 0) {
         
         // Convert to the word size
         local srcPage = srcPage / SFFS_PAGE_SIZE;
@@ -1108,6 +1294,7 @@ class SPIFlashFileSystem {
 
         }
     }
+
 
     //--------------------------------------------------------------------------
     function _getFilePages(file, fileId = null) {
@@ -1177,7 +1364,7 @@ class SPIFlashFileSystem {
         if (free.len() < count) {
             
             local b_start = math.rand() % _blocks;
-            b_start = 0; // NOTE: Remove this
+            // b_start = 0; // NOTE: Uncomment this for testing with a predictable distribution
             for (local b = 0; b < _blocks; b++) {
                 
                 local b_next = (b + b_start) % _blocks;
@@ -1188,7 +1375,7 @@ class SPIFlashFileSystem {
                 
                 // Scan through the pages starting at a random location
                 local l_start = math.rand() % lookupData.count;
-                l_start = 0; // NOTE: Remove this
+                // l_start = 0; // NOTE: Uncomment this for testing with a predictable distribution
                 for (local i = 0; i < lookupData.count; i++) {
     
                     local l_next = (i + l_start) % lookupData.count;
@@ -1235,14 +1422,99 @@ class SPIFlashFileSystem {
 
     
     //--------------------------------------------------------------------------
-    function _gc_scan() {
+    function _scan(callback = null) {
+        
+        _enable();
+        
+        local mem = imp.getmemoryfree();
+        local stats = { lookup = 0, free = 0, used = 0, erased = 0 };
+        local files = {};
+
+        // Scan the object lookup tables in each block, working out what is in each sector
+        for (local b = 0; b < _blocks; b++) {
+            
+            local block = _start + (b * SFFS_BLOCK_SIZE);
+            stats.lookup += SFFS_PAGES_PER_SECTOR;
+            
+            // Read all the pages except the lookup table
+            for (local p = SFFS_PAGES_PER_SECTOR; p < SFFS_PAGES_PER_BLOCK; p++) {
+
+                local page = block + (p * SFFS_PAGE_SIZE);
+                local data = _readPageHeader(page);
+
+                // Ignore pages that are free or deleted
+                if (data.type == SFFS_LOOKUP_STAT_ERASED) {
+                    stats.erased++;
+                    continue
+                } else if (data.type == SFFS_LOOKUP_STAT_FREE) {
+                    stats.free++;
+                    continue;
+                } else {
+                    stats.used++;
+                }
+
+                // This is a new file, so create an entry
+                local file = null;
+                if (data.id in files) {
+                    file = files[data.id];
+                } else {
+                    file = files[data.id] <- {};
+                    file.id <- data.id;
+                    file.flags <- SFFS_FLAGS_USED;
+                    file.fname <- null;
+                    file.size <- 0;
+                    file.lsIdx <- 0;
+                    file.lsDat <- 0;
+                    file.pgNxt <- 0;
+                    file.pgsIdx <- blob();
+                    file.pgsDat <- blob();
+                }
+                
+                // Extract any data we don't already have
+                if (data.type == SFFS_LOOKUP_STAT_INDEX) {
+                    file.pgsIdx.writen(page / SFFS_PAGE_SIZE, 'w');
+                    if ("fname" in data) file.fname = data.fname;
+                    if ("size" in data && data.size > 0) file.size = data.size;
+                    if (data.span >= file.lsIdx) {
+                        file.lsIdx = data.span;
+                    }
+                } else if (data.type == SFFS_LOOKUP_STAT_DATA) {
+                    file.pgsDat.writen(page / SFFS_PAGE_SIZE, 'w');
+                    if (data.span >= file.lsDat) {
+                        file.lsDat = data.span;
+                        file.pgNxt = page;
+                    }
+                }
+                
+            }
+            
+        }
+        
+        _disable();
+
+        // We have completed the scan, call the callback
+        if (callback) {
+            foreach (id, file in files) {
+                if (callback(file) == true) {
+                    break;
+                }
+            }
+        }
+        
+        // server.log("Memory used in scan2: " + (mem - imp.getmemoryfree()))
+        return stats;
+    }
+    
+    
+    //--------------------------------------------------------------------------
+    function _gc_scan(print = false) {
         
         _enable();
         
         local erased = blob(_sectors);
         local free = blob(_sectors);
         local used = blob(_sectors);
-        local pagesErasedTotal = 0, pagesFreeTotal = 0, pagesUsedTotal = 0;
+        local stats = { lookup = 0, free = 0, used = 0, erased = 0 };
 
         // Scan the object lookup tables in each block, working out what is in each sector
         for (local b = 0; b < _blocks; b++) {
@@ -1251,6 +1523,7 @@ class SPIFlashFileSystem {
             local block = _start + (b * SFFS_BLOCK_SIZE);
             local lookupData = _readLookupPage(block);
             local pagesErased = 0, pagesFree = 0, pagesUsed = 0;
+            stats.lookup += SFFS_PAGES_PER_SECTOR;
             
             // Skip the lookup sector in each block
             used.writen(0, 'b');
@@ -1271,9 +1544,6 @@ class SPIFlashFileSystem {
                     pagesUsed++;
                 }
 
-                if (sector == 4096 && lookup.stat != SFFS_LOOKUP_STAT_FREE) {
-                    // server.log(format("page %d contains id %d at lookup offset %d", lookup.page, lookup.id, lookup.addr))
-                }
                 if ((lookup.page + SFFS_PAGE_SIZE) % SFFS_SECTOR_SIZE == 0) {
                     
                     // The sector is over, write the counts to the blobs
@@ -1281,9 +1551,9 @@ class SPIFlashFileSystem {
                     erased.writen(pagesErased, 'b');
                     free.writen(pagesFree, 'b');
                     
-                    pagesErasedTotal += pagesErased;
-                    pagesFreeTotal += pagesFree;
-                    pagesUsedTotal += pagesUsed;
+                    stats.erased += pagesErased;
+                    stats.free += pagesFree;
+                    stats.used += pagesUsed;
                     
                     pagesFree = pagesErased = pagesUsed = 0;
                 }
@@ -1293,249 +1563,44 @@ class SPIFlashFileSystem {
         
         _disable();
 
-        // Work out if it is worth garbage collecting yet.
-        server.log("-------[ Sector map ]-------")
-        local sectors = ""; for (local i = 0; i < _sectors; i++) sectors += format("%2d ", i);
-        server.log("   Sector: " + sectors);
-        server.log(format("%4d %s: %s", pagesUsedTotal,   "Used", Utils.logBin(used)));
-        server.log(format("%4d %s: %s", pagesErasedTotal, "Ersd", Utils.logBin(erased)));
-        server.log(format("%4d %s: %s", pagesFreeTotal,   "Free", Utils.logBin(free)));
-        server.log(format("Total space: %d / %d bytes free (%0.01f %%)", 
-                pagesFreeTotal * SFFS_BODY_SIZE,
-                _blocks * SFFS_BLOCK_SIZE,
-                100.0 * (pagesFreeTotal * SFFS_BODY_SIZE) / (_blocks * SFFS_BLOCK_SIZE)
-                ));
-        server.log("----------------------------")
+
+        // So, whats the result?
+        if (print) {
+            server.log("-------[ Sector map ]-------")
+            local sectors = ""; for (local i = 0; i < _sectors; i++) sectors += format("%2d ", i);
+            server.log("   Sector: " + sectors);
+            server.log(format("%4d %s: %s", stats.used,   "Used", Utils.logBin(used)));
+            server.log(format("%4d %s: %s", stats.erased, "Ersd", Utils.logBin(erased)));
+            server.log(format("%4d %s: %s", stats.free,   "Free", Utils.logBin(free)));
+            server.log(format("Total space: %d / %d bytes free (%0.01f %%)", 
+                    stats.free * SFFS_BODY_SIZE,
+                    _blocks * SFFS_BLOCK_SIZE,
+                    100.0 * (stats.free * SFFS_BODY_SIZE) / (_blocks * SFFS_BLOCK_SIZE)
+                    ));
+            server.log("----------------------------")
+        }
         
-        return { erased = erased, free = free, used = used, 
-                 pagesErasedTotal = pagesErasedTotal, pagesFreeTotal = pagesFreeTotal, pagesUsedTotal = pagesUsedTotal };
+        return { erased = erased, free = free, used = used, stats = stats };
     }
     
     
     //--------------------------------------------------------------------------
-    function gc(initCallback = null) {
-        
-        if (_openFiles.len() > 0) return server.error("Can't call gc() with open files");
-
-        _enable();
-        
-        // Scan the storage collecting garbage stats
-        local stats = _gc_scan();
-
-        if (stats.pagesFreeTotal > 2 * SFFS_PAGES_PER_SECTOR || stats.pagesErasedTotal < 2 * SFFS_PAGES_PER_SECTOR) {
-            server.log("Not worth garbage collecting yet.")
-            // return _disable();
+    function _enable() {
+        if (_enables++ == 0) {
+            _flash.enable();
         }
-        
-        // Move all the used pages away from the erased pages
-        for (local s = 0; s < _sectors; s++) {
-            
-            // Does this sector have anything to collect
-            if (stats.erased[s] > 0 && /* stats.free[s] == 0 && */ stats.used[s] <= stats.pagesFreeTotal) {
-                
-                local sector = s * SFFS_SECTOR_SIZE;
-                local block = _getBlockFromAddr(sector);
-                
-                if (stats.erased[s] > 0) {
-
-                    // We may have stuff to move
-                    // server.log(format("Moving %d pages from sector %d to recover %d erased pages", stats.used[s], s, stats.erased[s]))
-                    
-                }
-                
-                if (stats.used[s] > 0) {
-                    
-                    // Read the lookup data
-                    local lookupData = _readLookupPage(block, true);
-    
-                    // Grab the free pages and copy into them
-                    local freePages = _nextFreePage(stats.used[s], sector);
-                    // server.log(format("Requested %d free pages and got %d", stats.used[s], freePages.len()))
-    
-                    // Skip straight to the sector's lookup
-                    for (local i = 0; i < lookupData.count && stats.used[s] > 0; i++) {
-            
-                        local lookup = _getLookupData(lookupData, i);
-                        
-                        // This is not from the sector we are looking at 
-                        if (_getSectorFromAddr(lookup.page) != sector) {
-                            continue;
-                        } 
-                        
-                        // server.log("Data for lookup of page " + lookup.page + " sector " + sector + " in block " + block + " stat " + lookup.stat);
-
-                        // These aren't interesting pages
-                        if (lookup.stat == SFFS_LOOKUP_STAT_FREE) {
-                            // server.log(format("- Skipping empty page %d", lookup.page))
-                            continue;
-                        } else if (lookup.stat == SFFS_LOOKUP_STAT_ERASED) {
-                            // server.log(format("- Skipping erased page %d", lookup.page))
-                            continue;
-                        }
-
-                        // Pop a free page off the list
-                        local freePage = freePages[0];
-                        freePages.remove(0);
-
-                        local s_free = _getSectorFromAddr(freePage) / SFFS_SECTOR_SIZE;
-                        local s_lookup = _getSectorFromAddr(lookup.page) / SFFS_SECTOR_SIZE;
-
-                        // Read the next page and if it is "used" then move it
-                        if (lookup.stat == SFFS_LOOKUP_STAT_INDEX) {
-                            
-                            // server.log(format("+ Moving %s page %02x (sector %02x) to %02x (sector %02x)",  "index", lookup.page, s_lookup, freePage, s_free))
-    
-                            // Copy the data over
-                            _copyPage(lookup.page, freePage, lookup);
-                            
-                            // Finally, erase the original page
-                            _erasePage(lookup.page);
-                            
-                        } else if (lookup.stat == SFFS_LOOKUP_STAT_DATA) {
-                            
-                            // server.log(format("+ Moving %s page %02x (sector %02x) to %02x (sector %02x)", "data", lookup.page, s_lookup, freePage, s_free))
-
-                            // Copy the data over
-                            _copyPage(lookup.page, freePage, lookup);
-                            
-                            // Finally, erase the original page
-                            _erasePage(lookup.page);
-                            
-                        } else {
-                            continue;
-                        }
-                        
-                        
-                        // Adjust the sector counts
-                        stats.used[s_free]++;
-                        stats.used[s_lookup]--;
-                        stats.erased[s_lookup]++;
-                        stats.pagesErasedTotal++;
-                        stats.pagesFreeTotal--;
-
-                    }
-                }
-                
-                // Now we can erase the sector and correct the lookup table
-                if (stats.used[s] == 0 && stats.erased[s] > 0) {
-                    
-                    // server.log(format("+ Erasing sector %d (data at page %02x, lookup at page %02x)", s, sector, block));
-                    
-                    // Read in the old lookup table and erase the sector from it
-                    local lookupData = _flash.read(block, 2 * SFFS_PAGE_SIZE);
-                    local start = 2 * (sector - block) / SFFS_PAGE_SIZE;
-                    
-                    lookupData.seek(start);
-                    for (local i = 0; i < SFFS_PAGES_PER_SECTOR; i++) {
-                        lookupData.writen(SFFS_LOOKUP_FREE, 'w');
-                    }
-
-                    // Rewrite the lookup table
-                    _flash.erasesector(block); imp.sleep(0.05);
-                    lookupData.seek(0);
-                    local res = _flash.write(block, lookupData, SFFS_SPIFLASH_VERIFY);
-                    assert(res == 0);
-
-                    // Perform the erase of the data sector
-                    _flash.erasesector(sector); imp.sleep(0.05);
-
-                    // Update the stats
-                    stats.free[s] += stats.used[s] + stats.erased[s];
-                    stats.used[s] = 0;
-                    stats.erased[s] = 0;
-                
-                } else {
-                    
-                    // server.log(format("+ NOT Erasing sector %d because used %d erased %d", s, stats.used[s], stats.erased[s]));
-                    
-                }
-            }
-        }
-        
-        _disable();
-        
-        // Repair the tables because
-        // repair();
-        
-        // Rescan the result
-        _gc_scan();
-        
-        // Reinitialise the file system 
-        init(initCallback);
-        
-    }
+    }    
     
     
     //--------------------------------------------------------------------------
-    function repair(initCallback = null) {
-       
-        if (_openFiles.len() > 0) return server.error("Can't call repair() with open files");
-        
-        _enable();
-        
-        // Repair the lookup tables by reading the contents of every page
-        local lookupData = blob(2 * SFFS_PAGE_SIZE);
-        local lookupWord;
-        for (local b = 0; b < _blocks; b++) {
-            
-            // 
-            local block = _start + (b * SFFS_BLOCK_SIZE);
-            lookupData.seek(0);
-
-            // Read the pages
-            for (local p = 0; p < SFFS_PAGES_PER_BLOCK; p++) {
-
-                local page = block + (p * SFFS_PAGE_SIZE);
-                if (page < block + SFFS_SECTOR_SIZE) {
-                    
-                    // server.log("SKIP: " + block + ", " + page)
-                    
-                    // This is from the first sector, which is lookup data
-                    lookupWord = SFFS_LOOKUP_ERASED;
-                    
-                } else {
-                    
-                    // server.log("KEEP: " + block + ", " + page)
-                    
-                    // This is a data or index page
-                    local data = _readDataPage(page);
-                    
-                    if ((data.flags & SFFS_FLAGS_INDEX) == SFFS_FLAGS_INDEX) {
-                        // This page has an index
-                        lookupWord = data.id | SFFS_LOOKUP_MASK_INDEX;
-                    } else if ((data.flags & SFFS_FLAGS_DATA) == SFFS_FLAGS_DATA) {
-                        // This page has data
-                        lookupWord = data.id;
-                    } else if (data.flags == SFFS_FLAGS_FREE) {
-                        // This page is free
-                        lookupWord = SFFS_LOOKUP_FREE;
-                    } else {
-                        // This page is deleted
-                        lookupWord = SFFS_LOOKUP_ERASED;
-                    }
-                }
-                
-                // Add the word to the lookup data
-                lookupData.writen(lookupWord, 'w')
-
-            }
-            
-            // Now erase and rewrite the lookup table
-            server.log("Repairing block " + b)
-            _flash.erasesector(block); imp.sleep(0.05);
-            lookupData.seek(0);
-            local res = _flash.write(block, lookupData, SFFS_SPIFLASH_VERIFY);
-            assert(res == 0);
+    function _disable() {
+        if (--_enables <= 0)  {
+            _enables = 0;
+            _flash.disable();
         }
-
-        _disable();
-        
-        // Now reinitialise the FAT
-        init(initCallback);
-
-    }
+    }    
     
-    
+
     //--------------------------------------------------------------------------
     function _getBlockFromAddr(page) {
         return page - (page % SFFS_BLOCK_SIZE);
@@ -1558,7 +1623,7 @@ class SPIFlashFileSystem {
         }
         // Sort the array by the key name
         interim.sort(function(first, second) {
-            return first.v <=> second.v;
+        	return first.v <=> second.v;
         });
         // Write them to a final array without the key
         local result = [];
@@ -1634,4 +1699,3 @@ class SPIFlashFileSystem.File {
         return bytesWritten;
     }
 }
-
