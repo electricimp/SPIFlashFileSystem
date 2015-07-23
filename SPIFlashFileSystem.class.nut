@@ -67,7 +67,7 @@ class SPIFlashFileSystem {
     _pageCache = null;
     _freePageCache = null;
 
-    _version = [1, 0, 0];
+    static version = [0, 1, 0];
 
     //--------------------------------------------------------------------------
     constructor(start = null, end = null, flash = null) {
