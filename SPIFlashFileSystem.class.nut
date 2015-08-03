@@ -1,3 +1,30 @@
+/*
+
+The physical space is divided into blocks (64k) and sectors (4k).
+Erase (wiping 0's to 1's) is performed at the sector level.
+The file system divides the available space into pages which the size of one or more sectors.
+At the start of every spage is an header which contains:
+    - the file's id (two bytes) for identifying and rejoining parts of a file
+    - the span id (two bytes) for ordering the parts
+    - an optional filename (with length byte)
+    - the span's size (how much of the page is used)
+At initialisation the page headers are scanned to bring the data into in-memory FAT which holds
+    - A blob map of free pages (one bit per page)
+    - An array of file ids -> ordered page numbers
+    - An array of file names -> file ids
+
+Limitations:
+    - Appending to a file means wasting any remainder of the previous page
+
+To do:
+    - Append (maybe not)
+    - Make _scan use less memory or write directly to _fat
+    - Asynch (optional) version of _scan()
+    - Optional SFFS_PAGE_SIZE (4k or multiples of)
+    - Clean up the back and forthing between the SFFS, FAT and File classes
+    - Cache next free pages
+*/
+
 // File system information
 const SFFS_BLOCK_SIZE = 65536;
 const SFFS_SECTOR_SIZE = 4096;
@@ -29,15 +56,21 @@ const SFFS_SPIFLASH_VERIFY = 1; // SPIFLASH_POSTVERIFY = 1
 
 //==============================================================================
 class SPIFlashFileSystem {
+    // Library version
     static version = [0, 2, 0];
 
+    // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
     static ERR_FILE_NOT_FOUND = "The requested file does not exist."
 
+    static ERR_FILE_EXISTS = "Cannot (w)rite to an existing file."
     static ERR_UNKNOWN_MODE = "Tried opening file with unknown mode."
+
+    static ERR_INVALID_WRITE_ADDRESS = "Tried writing to an invalid location."
 
     static ERR_VALIDATION = "Error validating SPI Flash write operation."
 
+    // Private:
     _flash = null;          // The SPI Flash object
     _size = null;           // The size of the SPI Flash
     _start = null;          // First byte of SPIFlash allocated to file system
@@ -52,7 +85,7 @@ class SPIFlashFileSystem {
     _openFiles = null;      // Array of open files
     _nextFileIdx = 1;       // Next ID to use for files
 
-    _autoGcThreshold = 4;
+    _autoGcThreshold = 4;   // If we fall below _autoGCThreshold # of free pages, we start GC
 
     //--------------------------------------------------------------------------
     constructor(start = null, end = null, flash = null) {
@@ -67,13 +100,12 @@ class SPIFlashFileSystem {
         _start = start ? start : 0;
         _end = end ? end : _size;
 
-        // Validate start/end values
+        // Validate start/end values:
 
         // Start is in the SPIFlash, and on a sector boundary
         if (_start < 0 || _start >= _size || _start % SFFS_SECTOR_SIZE != 0) throw "Invalid start value";
         // _end is after start, in the SPIFlash, and on a sector boundary
-        if (_end <= _start || _end > _size || _end - _start > _size || _end % SFFS_SECTOR_SIZE != 0) throw "Invalid end value";
-
+        if (_end <= _start || (_end - _start) > _size || _end % SFFS_SECTOR_SIZE != 0) throw "Invalid end value";
 
         // Calculate size of file system
         _len = _end - _start;
@@ -84,11 +116,10 @@ class SPIFlashFileSystem {
         _fat = SPIFlashFileSystem.FAT(this, _pages);
     }
 
-
-    //--------------------------------------------------------------------------
+    // Builds the FAT
     function init(callback = null) {
-
-        if (_openFiles.len() > 0) return server.error("Can't call init() with open files");
+        // Make sure there aren't any open files:
+        if (_openFiles.len() > 0) throw ERR_OPEN_FILE;
 
         // Free up some memory
         _fat = null;
@@ -96,27 +127,9 @@ class SPIFlashFileSystem {
         // Scan the pages for files
         local scan = _scan();
         _fat = SPIFlashFileSystem.FAT(this, scan.files, scan.pages);
-
     }
 
-    //--------------------------------------------------------------------------
-    function dimensions() {
-        return { "size": _size, "len": _len, "start": _start, "end": _end }
-    }
-
-
-    //--------------------------------------------------------------------------
-    function isFileOpen(fname) {
-        // Search through the open file table for matching ids
-        local id = _fat.get(fname).id;
-        foreach (ptr, fileId in _openFiles) {
-            if (id == fileId) return true;
-        }
-        return false;
-    }
-
-
-    //--------------------------------------------------------------------------
+    // Erases a single file
     function eraseFile(fname) {
 
         if (!_fat.fileExists(fname)) throw ERR_FILE_NOT_FOUND;
@@ -124,13 +137,16 @@ class SPIFlashFileSystem {
 
         _enable();
 
+        // Build a blob to zero out the file
         local zeros = blob(SFFS_HEADER_SIZE + 1 + SFFS_MAX_FNAME_SIZE);
 
         local pages = _fat.forEachPage(fname, function(addr) {
             // Erase the page headers
             local res = _flash.write(addr, zeros, SFFS_SPIFLASH_VERIFY);
-            if (res != 0) throw ERR_VALIDATION;
-
+            if (res != 0) {
+                _disable();
+                throw ERR_VALIDATION;
+            }
             // Mark the page map
             _fat.markPage(addr, SFFS_STATUS_ERASED);
         }.bindenv(this));
@@ -139,47 +155,28 @@ class SPIFlashFileSystem {
 
         // Update the fat
         _fat.removeFile(fname);
-
     }
 
-
-    //--------------------------------------------------------------------------
+    // Erases the portion of the SPIFlash dedicated to the fs
     function eraseAll() {
+        // Can't erase if there's open files?
         if (_openFiles.len() > 0) throw ERR_OPEN_FILE;
 
         _fat = SPIFlashFileSystem.FAT(this, _pages);
 
         _enable();
         for (local p = 0; p < _pages; p++) {
-            _flash.erasesector(p * SFFS_PAGE_SIZE);
+            _flash.erasesector(p * SFFS_SECTOR_SIZE);
         }
         _disable();
     }
 
-
-    //--------------------------------------------------------------------------
-    function fileExists(fname) {
-        return _fat.fileExists(fname);
-    }
-
-
-    //--------------------------------------------------------------------------
-    function fileSize(fileRef) {
-        return _fat.get(fileRef).size;
-    }
-
-
-    //--------------------------------------------------------------------------
+    // Opens a file to (r)ead, (w)rite, or (a)ppend
     function open(fname, mode) {
-
-        // Check the mode
-        if ((mode == "r") && !_fat.fileExists(fname)) {
-            throw ERR_FILE_NOT_FOUND;
-        } else if ((mode == "w") && _fat.fileExists(fname)) {
-            throw format("Can't open '%s' for writing, already exists", fname);
-        } else if (mode != "r" && mode != "w" && mode != "a") {
-            throw ERR_UNKNOWN_MODE;
-        }
+        // Validate operation
+        if      ((mode == "r") && !_fat.fileExists(fname))  throw ERR_FILE_NOT_FOUND;
+        else if ((mode == "w") && _fat.fileExists(fname))   throw ERR_FILE_EXISTS;
+        else if (mode != "r" && mode != "w" && mode != "a") throw ERR_UNKNOWN_MODE;
 
         // Create a new file pointer from the FAT or a new file
         local fileId = _fat.getFileId(fname);
@@ -188,9 +185,7 @@ class SPIFlashFileSystem {
 
         // Return a new file object
         return SPIFlashFileSystem.File(this, fileId, fileIdx, fname, mode);
-
     }
-
 
     //--------------------------------------------------------------------------
     function gc() {
@@ -218,19 +213,42 @@ class SPIFlashFileSystem {
         return collected;
     }
 
+    //-------------------- Utility Methods --------------------//
 
-    //--------------------------------------------------------------------------
+    // Returns true if a file is open, false otherwise
+    function isFileOpen(fname) {
+        // Search through the open file table for matching ids
+        local id = _fat.get(fname).id;
+        foreach (ptr, fileId in _openFiles) {
+            if (id == fileId) return true;
+        }
+        return false;
+    }
+
+    // Returns true if a file exists, false otherwise
+    function fileExists(fname) {
+        return _fat.fileExists(fname);
+    }
+
+    // Returns the size of a file
+    function fileSize(fileRef) {
+        return _fat.get(fileRef).size;
+    }
+
+    // Sets the Garbage Collection threshold
     function setAutoGc(maxPages) {
-
         // Override the default auto garbage collection settings
         if (maxPages != null) _autoGcThreshold = maxPages;
 
     }
 
+    // Returns a table with the dimensions of the File System
+    function dimensions() {
+        return { "size": _size, "len": _len, "start": _start, "end": _end }
+    }
 
-    //--------------------------------------------------------------------------
+    //-------------------- PRIVATE METHODS --------------------//
     function _autoGc() {
-
         // Is it worth gc'ing? If so, start it.
         local _fatStats = _fat.getStats();
         if (_fatStats.free <= _autoGcThreshold && _fatStats.erased > 0) {
@@ -240,10 +258,7 @@ class SPIFlashFileSystem {
 
     }
 
-
-    //--------------------------------------------------------------------------
     function _close(fileId, fileIdx, dirty) {
-
         // We have changes to write to disk
         if (dirty) {
             local file = _fat.get(fileId);
@@ -251,10 +266,10 @@ class SPIFlashFileSystem {
             // Write the last span's size to disk
             file.pages.seek(-2, 'e');
             local page = file.pages.readn('w') * SFFS_PAGE_SIZE;
+
             file.sizes.seek(-2, 'e');
             local size = file.sizes.readn('w');
 
-            // server.log(format("The last span of file %d has size %d at addr %d", fileId, size, page))
             _writeSize(page, size);
         }
 
@@ -425,11 +440,7 @@ class SPIFlashFileSystem {
 
     //--------------------------------------------------------------------------
     function _writeSize(addr, size) {
-
-        // server.log(format("    Updating size to %d at addr %d", size, addr))
-
-        assert(addr < _end);
-        assert(addr % SFFS_PAGE_SIZE == 0);
+        if (addr >= _end || addr % SFFS_PAGE_SIZE != 0) throw ERR_INVALID_WRITE_ADDRESS;
 
         local headerBlob = blob(SFFS_HEADER_SIZE)
         headerBlob.writen(0xFFFF, 'w'); // the id
@@ -440,7 +451,8 @@ class SPIFlashFileSystem {
         _enable();
         local res = _flash.write(addr, headerBlob); // Verification will fail
         _disable();
-        assert(res == 0);
+
+        if (res != 0) throw ERR_FILE_EXISTS;
 
     }
 
@@ -590,29 +602,19 @@ class SPIFlashFileSystem {
 
     }
 
-
-    //--------------------------------------------------------------------------
+    // Counting Semaphores:
     function _enable() {
         if (_enables++ == 0) {
             _flash.enable();
         }
     }
 
-
-    //--------------------------------------------------------------------------
     function _disable() {
         if (--_enables <= 0)  {
             _enables = 0;
             _flash.disable();
         }
     }
-
-
-    //--------------------------------------------------------------------------
-    function _getSectorFromAddr(page) {
-        return page - (page % SFFS_SECTOR_SIZE);
-    }
-
 }
 
 class SPIFlashFileSystem.FAT {
@@ -907,7 +909,6 @@ class SPIFlashFileSystem.File {
     _waddr = 0;
     _dirty = false;
 
-    //--------------------------------------------------------------------------
     constructor(filesystem, fileId, fileIdx, fname, mode) {
         _filesystem = filesystem;
         _fileIdx = fileIdx;
@@ -916,7 +917,8 @@ class SPIFlashFileSystem.File {
         _mode = mode;
     }
 
-    //--------------------------------------------------------------------------
+
+    // Closes a file
     function close() {
         return _filesystem._close(_fileId, _fileIdx, _dirty);
     }
