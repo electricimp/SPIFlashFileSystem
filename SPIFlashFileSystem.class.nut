@@ -206,12 +206,15 @@ class SPIFlashFileSystem {
         }
 
         _disable();
+
+        // if (collected > 0) server.log("Auto-garbage collector collected " + collected + " pages");
     }
 
+    // Recursive asynchronous Garbage Collections
     function _gc(sectorMap, sector, collected = 0) {
         // Base case: we're at the end
         if (sector >= sectorMap.len()) {
-            if (collected > 0) server.log("Auto-garbage collector collected " + collected + " pages");
+            // if (collected > 0) server.log("Auto-garbage collector collected " + collected + " pages");
             _collecting = false;
             _disable();
             return;
@@ -327,8 +330,8 @@ class SPIFlashFileSystem {
                 try {
                     addr = _fat.getFreePage();
                 } catch (e) {
-                    // No free pages, try garbage collection 1 page and then die
-                    gc(_autoGcThreshold);
+                    // Free 2x _autoGcThreshold pages
+                    gc(_autoGcThreshold*2);
                     addr = _fat.getFreePage();
                 }
 
@@ -429,7 +432,7 @@ class SPIFlashFileSystem {
             local res = _flash.write(addr, data, SPIFLASHFILESYSTEM_SPIFLASH_VERIFY, data.tell(), data.tell() + dataToWrite);
             _disable();
 
-            // Valudate write
+            // Validate write
             if (res != 0) throw ERR_VALIDATION;
 
             // Update pointer information
