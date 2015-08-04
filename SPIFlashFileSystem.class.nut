@@ -63,6 +63,7 @@ class SPIFlashFileSystem {
     _nextFileIdx = 1;       // Next ID to use for files
 
     _autoGcThreshold = 4;   // If we fall below _autoGCThreshold # of free pages, we start GC
+    _collecting = false;    // Flag to indicate an async gc is in progress
 
     // Creates Filesystem objects, but does not initialize
     constructor(start = null, end = null, flash = null) {
@@ -166,29 +167,66 @@ class SPIFlashFileSystem {
     }
 
     //--------------------------------------------------------------------------
-    function gc() {
+    function gc(numPages = null) {
+        // Don't auto-garbage if we're already in the process of doing so
+        if (numPages == null && _collecting == true) return;
 
         _enable();
 
         // Scan the headers of each page, working out what is in each
         local collected = 0;
-        for (local p = 0; p < _pages; p++) {
+        local sectorMap = _fat.getSectorMap().tostring()
+        local maplen = sectorMap.len();
 
-            local page = _start + (p * SPIFLASHFILESYSTEM_PAGE_SIZE);
-            local header = _readPage(page, false);
-            // server.log(page + " = " + header.status.tostring())
+        // Asynchronous (auto-gc)
+        if (numPages == null) {
+            _collecting = true;
+            server.log("starting");
+            imp.wakeup(0, function() { _gc(sectorMap, 0); }.bindenv(this));
+            return;
+        }
 
-            if (header.status == SPIFLASHFILESYSTEM_STATUS_ERASED || header.status == SPIFLASHFILESYSTEM_STATUS_BAD) {
-                _flash.erasesector(page);
-                _fat.markPage(page, SPIFLASHFILESYSTEM_STATUS_FREE);
+
+        // Synchronous
+        local firstSector = math.rand() % maplen;
+        for(local sector = 0; sector < maplen; sector++) {
+            // If the sector is dirty
+            local thisSector = (sector + firstSector) % maplen;
+            if (sectorMap[thisSector] == SPIFLASHFILESYSTEM_STATUS_ERASED || sectorMap[thisSector] == SPIFLASHFILESYSTEM_STATUS_BAD) {
+
+                // Erase the sector and mark the map
+                local addr = _start + thisSector*SPIFLASHFILESYSTEM_SECTOR_SIZE
+                _flash.erasesector(addr);
+                _fat.markPage(addr, SPIFLASHFILESYSTEM_STATUS_FREE);
                 collected++;
+
+                // If we've collected enough pages, we're done
+                if (numPages != null && collected >= numPages) break;
             }
         }
 
         _disable();
+    }
 
-        if (collected > 0) server.log("Garbage collected " + collected + " pages");
-        return collected;
+    function _gc(sectorMap, sector, collected = 0) {
+        // Base case: we're at the end
+        if (sector >= sectorMap.len()) {
+            if (collected > 0) server.log("Auto-garbage collector collected " + collected + " pages");
+            _collecting = false;
+            _disable();
+            return;
+        }
+
+        // If the sector is dirty
+        if (sectorMap[sector] == SPIFLASHFILESYSTEM_STATUS_ERASED || sectorMap[sector] == SPIFLASHFILESYSTEM_STATUS_BAD) {
+
+            // Erase the sector and mark the map
+            local addr = _start + sector*SPIFLASHFILESYSTEM_SECTOR_SIZE
+            _flash.erasesector(addr);
+            _fat.markPage(addr, SPIFLASHFILESYSTEM_STATUS_FREE);
+            collected++;
+        }
+        imp.wakeup(0, function() { _gc(sectorMap, sector+1, collected); }.bindenv(this));
     }
 
     //-------------------- Utility Methods --------------------//
@@ -233,7 +271,7 @@ class SPIFlashFileSystem {
 
         // Is it worth gc'ing? If so, start it.
         local _fatStats = _fat.getStats();
-        if (_fatStats.free <= _autoGcThreshold && _fatStats.erased > 0) {
+        if (!_collecting && _fatStats.free <= _autoGcThreshold && _fatStats.erased > 0) {
             server.log("Automatically starting garbage collection");
             gc();
         }
@@ -289,9 +327,8 @@ class SPIFlashFileSystem {
                 try {
                     addr = _fat.getFreePage();
                 } catch (e) {
-                    // No free pages, try garbage collection and then die
-                    server.error("Out of space, trying gc()")
-                    gc();
+                    // No free pages, try garbage collection 1 page and then die
+                    gc(_autoGcThreshold);
                     addr = _fat.getFreePage();
                 }
 
@@ -767,6 +804,11 @@ class SPIFlashFileSystem.FAT {
         _map[i] = status;
     }
 
+    // Returns a reference to the sector map (_map)
+    function getSectorMap() {
+        return _map;
+    }
+
     // Returns # of each type of page in fs (free, used, erased, bad)
     function getStats() {
         local stats = { "free": 0, "used": 0, "erased": 0, "bad": 0 };
@@ -834,6 +876,7 @@ class SPIFlashFileSystem.FAT {
         }
 
     }
+
 
     // Returns an array of pages ordered by the span
     function pagesOrderedBySpan(pages) {
@@ -939,4 +982,3 @@ class SPIFlashFileSystem.File {
     }
 
 }
-
