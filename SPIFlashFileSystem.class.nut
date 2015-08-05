@@ -17,21 +17,8 @@ const SPIFLASHFILESYSTEM_STATUS_USED = 0x01;
 const SPIFLASHFILESYSTEM_STATUS_ERASED = 0x02;
 const SPIFLASHFILESYSTEM_STATUS_BAD = 0x03;
 
-// Lookup Masks
-const SPIFLASHFILESYSTEM_LOOKUP_MASK_ID = 0x7FFF;
-const SPIFLASHFILESYSTEM_LOOKUP_MASK_INDEX = 0x8000;
-const SPIFLASHFILESYSTEM_LOOKUP_FREE  = 0xFFFF;
-const SPIFLASHFILESYSTEM_LOOKUP_ERASED  = 0x0000;
-
-// Lookup stat values
-const SPIFLASHFILESYSTEM_LOOKUP_STAT_ERASED = 0x00;
-const SPIFLASHFILESYSTEM_LOOKUP_STAT_INDEX  = 0x01;
-const SPIFLASHFILESYSTEM_LOOKUP_STAT_DATA   = 0x02;
-const SPIFLASHFILESYSTEM_LOOKUP_STAT_FREE   = 0xFF;
-
 const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // SPIFLASH_POSTVERIFY = 1
 
-//==============================================================================
 class SPIFlashFileSystem {
     // Library version
     static version = [0, 2, 0];
@@ -181,7 +168,6 @@ class SPIFlashFileSystem {
         // Asynchronous (auto-gc)
         if (numPages == null) {
             _collecting = true;
-            server.log("starting");
             imp.wakeup(0, function() { _gc(sectorMap, 0); }.bindenv(this));
             return;
         }
@@ -206,15 +192,12 @@ class SPIFlashFileSystem {
         }
 
         _disable();
-
-        // if (collected > 0) server.log("Auto-garbage collector collected " + collected + " pages");
     }
 
     // Recursive asynchronous Garbage Collections
     function _gc(sectorMap, sector, collected = 0) {
         // Base case: we're at the end
         if (sector >= sectorMap.len()) {
-            // if (collected > 0) server.log("Auto-garbage collector collected " + collected + " pages");
             _collecting = false;
             _disable();
             return;
@@ -229,6 +212,8 @@ class SPIFlashFileSystem {
             _fat.markPage(addr, SPIFLASHFILESYSTEM_STATUS_FREE);
             collected++;
         }
+
+        // Collect the next dirty page
         imp.wakeup(0, function() { _gc(sectorMap, sector+1, collected); }.bindenv(this));
     }
 
@@ -275,7 +260,6 @@ class SPIFlashFileSystem {
         // Is it worth gc'ing? If so, start it.
         local _fatStats = _fat.getStats();
         if (!_collecting && _fatStats.free <= _autoGcThreshold && _fatStats.erased > 0) {
-            server.log("Automatically starting garbage collection");
             gc();
         }
 
@@ -331,7 +315,7 @@ class SPIFlashFileSystem {
                     addr = _fat.getFreePage();
                 } catch (e) {
                     // Free 2x _autoGcThreshold pages
-                    gc(_autoGcThreshold*2);
+                    gc(2 * _autoGcThreshold);
                     addr = _fat.getFreePage();
                 }
 
@@ -582,7 +566,6 @@ class SPIFlashFileSystem {
 
             local page = _start + (p * SPIFLASHFILESYSTEM_PAGE_SIZE);
             local header = _readPage(page, false);
-            // server.log(page + " = " + header.status.tostring())
 
             // Record this page's status
             pages.writen(header.status, 'b');
@@ -599,17 +582,10 @@ class SPIFlashFileSystem {
                 if (header.fname != null) file.fn = header.fname;
                 file.pg[header.span] <- page;
                 file.sz[header.span] <- header.size;
-
-            }
-
-            if (files.len() > 0) {
-                // server.log(format("Interim: %d files, %d ram free, %d ram used", files.len(), imp.getmemoryfree(), (mem - imp.getmemoryfree())))
             }
         }
 
         _disable();
-
-        server.log("Memory used in scan: " + (mem - imp.getmemoryfree()))
 
         return { "files": files, "pages": pages };
     }
@@ -732,7 +708,7 @@ class SPIFlashFileSystem.FAT {
         }
 
         // Check the file is valid
-        if (fileId == null || fname == null) throw ERR_FILE_NOT_FOUND;
+        if (fileId == null || fname == null) throw SPIFlashFileSystem.ERR_FILE_NOT_FOUND;
 
         // Add up the sizes
         local sizeTotal = 0, size = 0;
@@ -904,8 +880,6 @@ class SPIFlashFileSystem.FAT {
         return result;
     }
 
-
-
     // Debugging function to server.log FAT information
     function describe() {
         server.log(format("FAT contained %d files", _names.len()))
@@ -974,7 +948,6 @@ class SPIFlashFileSystem.File {
     // Writes data to the file and updates the FAT
     function write(data) {
         if (_mode == "r") throw ERR_WRITE_R_FILE;
-
         local info = _filesystem._write(_fileId, _waddr, data);
 
         _wpos += info.writtenFromData;
@@ -983,5 +956,4 @@ class SPIFlashFileSystem.File {
 
         return info.writtenToPage;
     }
-
 }
