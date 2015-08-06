@@ -962,7 +962,7 @@ class SPIFlashFileSystem.File {
     }
 
     // Returns the size of the file
-    function size() {
+    function len() {
         return _filesystem._fat.get(_fileId).sizeTotal;
     }
 
