@@ -105,11 +105,6 @@ class SPIFlashFileSystem {
         }
     }
 
-    // Returns an array of file objects containing: { "id": int, "fname": string, "size": int }
-    function getFileList() {
-        return _fat.getFileList();
-    }
-
     // Erases the portion of the SPIFlash dedicated to the fs
     function eraseAll() {
         // Can't erase if there's open files?
@@ -150,6 +145,9 @@ class SPIFlashFileSystem {
 
         // Update the fat
         _fat.removeFile(fname);
+
+        // Run the garbage collector if needed
+        _autoGc();
     }
 
     // Opens a file to (r)ead, (w)rite, or (a)ppend
@@ -157,7 +155,7 @@ class SPIFlashFileSystem {
         // Validate operation
         if      ((mode == "r") && !_fat.fileExists(fname))  throw ERR_FILE_NOT_FOUND;
         else if ((mode == "w") && _fat.fileExists(fname))   throw ERR_FILE_EXISTS;
-        else if (mode != "r" && mode != "w" && mode != "a") throw ERR_UNKNOWN_MODE;
+        else if (mode != "r" && mode != "w") throw ERR_UNKNOWN_MODE;
 
         // Create a new file pointer from the FAT or a new file
         local fileId = _fat.getFileId(fname);
@@ -168,7 +166,44 @@ class SPIFlashFileSystem {
         return SPIFlashFileSystem.File(this, fileId, fileIdx, fname, mode);
     }
 
-    //--------------------------------------------------------------------------
+    //-------------------- Utility Methods --------------------//
+    // Returns an array of file objects containing: { "id": int, "fname": string, "size": int }
+    function getFileList() {
+        return _fat.getFileList();
+    }
+
+    // Returns true if a file is open, false otherwise
+    function isFileOpen(fname) {
+        // Search through the open file table for matching ids
+        local id = _fat.get(fname).id;
+        foreach (ptr, fileId in _openFiles) {
+            if (id == fileId) return true;
+        }
+        return false;
+    }
+
+    // Returns true if a file exists, false otherwise
+    function fileExists(fname) {
+        return _fat.fileExists(fname);
+    }
+
+    // Returns the size of a file
+    function fileSize(fileRef) {
+        return _fat.get(fileRef).size;
+    }
+
+    // Returns a table with the dimensions of the File System
+    function dimensions() {
+        return { "size": _size, "len": _len, "start": _start, "end": _end }
+    }
+
+    //-------------------- GARBAGE COLLECTION --------------------//
+    // Sets the Garbage Collection threshold
+    function setAutoGc(maxPages) {
+        // Override the default auto garbage collection settings
+        if (maxPages != null) _autoGcThreshold = maxPages;
+    }
+
     function gc(numPages = null) {
         // Don't auto-garbage if we're already in the process of doing so
         if (numPages == null && _collecting == true) return;
@@ -232,41 +267,6 @@ class SPIFlashFileSystem {
         imp.wakeup(0, function() { _gc(sectorMap, sector+1, collected); }.bindenv(this));
     }
 
-    //-------------------- Utility Methods --------------------//
-
-    // Returns true if a file is open, false otherwise
-    function isFileOpen(fname) {
-        // Search through the open file table for matching ids
-        local id = _fat.get(fname).id;
-        foreach (ptr, fileId in _openFiles) {
-            if (id == fileId) return true;
-        }
-        return false;
-    }
-
-    // Returns true if a file exists, false otherwise
-    function fileExists(fname) {
-        return _fat.fileExists(fname);
-    }
-
-    // Returns the size of a file
-    function fileSize(fileRef) {
-        return _fat.get(fileRef).size;
-    }
-
-    // Sets the Garbage Collection threshold
-    function setAutoGc(maxPages) {
-        // Override the default auto garbage collection settings
-        if (maxPages != null) _autoGcThreshold = maxPages;
-
-    }
-
-    // Returns a table with the dimensions of the File System
-    function dimensions() {
-        return { "size": _size, "len": _len, "start": _start, "end": _end }
-    }
-
-    //-------------------- PRIVATE METHODS --------------------//
     // Checks whether we want to Garbage Collect, and starts process if we do
     function _autoGc() {
         // Don't garbage collect if there's open file, or user has turned off gc
@@ -280,6 +280,7 @@ class SPIFlashFileSystem {
 
     }
 
+    //-------------------- PRIVATE METHODS --------------------//
     // Closes a file, sets size, etc
     function _close(fileId, fileIdx, dirty) {
         // We have changes to write to disk
