@@ -99,7 +99,7 @@ class SPIFlashFileSystem {
         if (callback == null) return;
 
         // Otherwise, invoke callback against each file
-        local files = _fat.getFileList();
+        local files = getFileList();
         foreach(file in files) {
             callback(file);
         }
