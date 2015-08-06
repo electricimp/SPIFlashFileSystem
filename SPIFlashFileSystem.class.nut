@@ -100,9 +100,7 @@ class SPIFlashFileSystem {
 
         // Otherwise, invoke callback against each file
         local files = getFileList();
-        foreach(file in files) {
-            callback(file);
-        }
+        callback(files);
     }
 
     // Erases the portion of the SPIFlash dedicated to the fs
@@ -189,7 +187,7 @@ class SPIFlashFileSystem {
 
     // Returns the size of a file
     function fileSize(fileRef) {
-        return _fat.get(fileRef).size;
+        return _fat.get(fileRef).sizeTotal;
     }
 
     // Returns a table with the dimensions of the File System
