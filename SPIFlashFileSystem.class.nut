@@ -93,6 +93,21 @@ class SPIFlashFileSystem {
         // Scan the pages for files
         local scan = _scan();
         _fat = SPIFlashFileSystem.FAT(this, scan.files, scan.pages);
+        scan = null;
+
+        // if there was no callback, we're done
+        if (callback == null) return;
+
+        // Otherwise, invoke callback against each file
+        local files = _fat.getFileList();
+        foreach(file in files) {
+            callback(file);
+        }
+    }
+
+    // Returns an array of file objects containing: { "id": int, "fname": string, "size": int }
+    function getFileList() {
+        return _fat.getFileList();
     }
 
     // Erases the portion of the SPIFlash dedicated to the fs
@@ -728,6 +743,21 @@ class SPIFlashFileSystem.FAT {
             "sizeTotal": sizeTotal
         };
 
+    }
+
+    // Returns a simplified list of files for the dev to use
+    function getFileList() {
+        local list = [];
+        foreach(filename in _names) {
+            local file = get(filename);
+            list.push({
+                "id": file.id,
+                "fname": file.fname,
+                "size": file.sizeTotal
+            });
+        }
+
+        return list;
     }
 
     // Sets the spans array for the specified file id
