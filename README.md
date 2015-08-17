@@ -118,7 +118,7 @@ The *init* method initializes the FAT, and must be called before invoking other 
 
 // Allocate the first 2 MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
-sffs.init(function(file) {
+sffs.init(function(files) {
     // Log how many files we found
     server.log(format("Found %d files", files.len()));
 
@@ -294,19 +294,19 @@ server.log(file.size());
 
 ### read(*[length]*)
 
-Reads information from the file, starting at the current file pointer. If a *length* parameter is specified, that many bytes will be read, otherwise the read method will read and return the remained of the file.
+Reads information from the file and returns it as a blob, starting at the current file pointer. If a *length* parameter is specified, that many bytes will be read, otherwise the read method will read and return the remained of the file.
 
 ```squirrel
 // Read and log the contents of a file
 file <- sffs.open("HelloWorld.txt", "r");
-server.log(file.read());
+server.log(file.read().tostring());
 ```
 
 ### write(*data*)
 
 Writes a string or blob to the end of a file's data opened with mode "w" (if you attempt to write to a file opened with mode "r" a `SPIFlashFileSystem.ERR_WRITE_R_FILE` error will be thrown).
 
-**NOTE**: The information is not writen to the SPI Flash until the [close](#close) method is called.
+**NOTE**: The page header is not written to the SPI Flash until the entire page is written, or the [close](#close) method is called.
 
 In the following example, we download a file in chunks from the agent:
 
@@ -327,6 +327,12 @@ file.close();
 The *close* method closes a file, and writes data to the SPI Flash if required. All files that are opened should be closed (regardless of what mode they were opened in).
 
 *See [write()](#writedata) for sample usage.*
+
+# TODO:
+- seek() from start, end, and current. See the [Squirrel documentation](https://electricimp.com/docs/squirrel/blob/seek/)
+- append mode ("a") in open()
+- Optional asynch version of _scan() which throws a "ready" event when fully loaded
+- Optional SFFS_PAGE_SIZE (4k or multiples of)
 
 # License
 
