@@ -325,13 +325,7 @@ class SPIFlashFileSystem {
             // If we need a new page
             if (addr % SPIFLASHFILESYSTEM_PAGE_SIZE == 0) {
                 // Find and record the next page
-                try {
-                    addr = _fat.getFreePage();
-                } catch (e) {
-                    // Free 2x _autoGcThreshold pages
-                    gc(2 * _autoGcThreshold);
-                    addr = _fat.getFreePage();
-                }
+                addr = _fat.getFreePage();
 
                 // Update file with new page in FAT
                 _fat.addPage(file.id, addr)
@@ -795,13 +789,21 @@ class SPIFlashFileSystem.FAT {
         local randStart = math.rand() % _map.len();
         local next = map.find(SPIFLASHFILESYSTEM_STATUS_FREE.tochar(), randStart);
 
-        // Didn't find one the first time, try from the beginning
-        if (next == null) next = map.find(SPIFLASHFILESYSTEM_STATUS_FREE.tochar());
+        // If we didn't a free page from the random midpoint, start again from the beginning
+        if (next == null) {
+            next = map.find(SPIFLASHFILESYSTEM_STATUS_FREE.tochar());
+        }
 
-        // If we still didn't fine one, throw error :(
+        // If there were 0 free pages, garbage collect, and start again from the beginning
+        if (next == null) {
+            gc(2 * _autoGcThreshold);
+            next = map.find(SPIFLASHFILESYSTEM_STATUS_FREE.tochar());
+        }
+
+        // If we haven't found one after garbage collection, theow error
         if (next == null) throw SPIFlashFileSystem.ERR_NO_FREE_SPACE;
 
-        // If we did find one, return the location
+        // If we did find a page, return it
         return _filesystem.dimensions().start + (next * SPIFLASHFILESYSTEM_PAGE_SIZE);
     }
 
