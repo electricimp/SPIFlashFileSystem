@@ -21,7 +21,7 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // SPIFLASH_POSTVERIFY = 1
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [0, 2, 0];
+    static version = [0, 2, 1];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
