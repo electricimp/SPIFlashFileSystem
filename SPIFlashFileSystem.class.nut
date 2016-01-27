@@ -21,7 +21,7 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // SPIFLASH_POSTVERIFY = 1
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [0, 2, 0];
+    static version = [0, 2, 1];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
@@ -493,6 +493,7 @@ class SPIFlashFileSystem {
 
                 // Have we got everything?
                 togo -= data.data.len();
+                next += data.data.len();
                 if (togo == 0) break;
             }
 
@@ -537,7 +538,7 @@ class SPIFlashFileSystem {
         // Read the data if required
         if (readData) {
             local dataOffset = headerBlob.tell();
-            if (len > pageData.size) len = pageData.size;
+            if (from + len > pageData.size) len = pageData.size - from;
             pageData.data <- _flash.read(addr + dataOffset + from, len);
         }
 
