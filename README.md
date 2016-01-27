@@ -1,10 +1,10 @@
-# SPIFlashFileSystem 0.2.1
+# SPIFlashFileSystem 1.0.0
 
 The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices (using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003+, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002).
 
-**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:0.2.1"`` to the top of your device code.**
+**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.0.0"`` to the top of your device code.**
 
-You can view the library’s source code on [GitHub](https://github.com/electricimp/spiflashfilesystem/tree/v0.2.1).
+You can view the library’s source code on [GitHub](https://github.com/electricimp/spiflashfilesystem/tree/v1.0.0).
 
 ## Overview of the File System
 
@@ -20,11 +20,14 @@ Let's look at how the SPIFlashFileSystem stores file information and data. In th
 
 The file will be broken into two pages, each 4096 bytes large. Both pages will contain 6-bytes of header information:
 
-- 2-bytes for the FileID
-- 2-bytes for the SpanID
-- 2-bytes for the length of the data in the span/page
+- 2 bytes for the FileID
+- 2 bytes for the SpanID
+- 2 bytes for the length of the data in the span/page
 
-The first span will *also* contain an additional byte to denote the length of the filename, followed by the filename itself.
+The first span will *also* contain:
+- 4 bytes to record the creation timestamp
+- 1 byte to denote the length of the filename, followed by
+- the filename
 
 After we've written the header information, we fill the remainder of the span with the file's data. We will use all of the available storage in the first span, but only the first 2150 bytes of the second span. The remaining 1946 bytes in the second span will be unusable (as pages cannot be shared amongst multiple files).
 
@@ -40,16 +43,20 @@ Because each sector contains a FileID and SpanID, the sectors can be anywhere in
 | 0x0003 | 0x00 | High Byte of **SpanID** word |
 | 0x0004 | 0xF0 | Low Byte of **length of data** in this span/sector |
 | 0x0005 | 0x0F | High Byte of **length of data** in this span/sector |
-| 0x0006 | 0x08 | **Length of file name** |
-| 0x0007 | 0x74 | t |
-| 0x0008 | 0x65 | e |
-| 0x0009 | 0x73 | s |
-| 0x000A | 0x74 | t |
-| 0x000B | 0x2e | . |
-| 0x000C | 0x74 | t |
-| 0x000D | 0x78 | x |
+| 0x0006 | 0x56 | First Byte of **Creation time** |
+| 0x0007 | 0xA8 | Second Byte of **Creation time** |
+| 0x0008 | 0x76 | Third Byte of **Creation time** |
+| 0x0009 | 0x47 | Fourth Byte of **Creation time** |
+| 0x000A | 0x08 | **Length of file name** |
+| 0x000B | 0x74 | t |
+| 0x000C | 0x65 | e |
+| 0x000D | 0x73 | s |
 | 0x000E | 0x74 | t |
-| 0x000F | data | **File Data** (byte 1) |
+| 0x000F | 0x2e | . |
+| 0x0010 | 0x74 | t |
+| 0x0011 | 0x78 | x |
+| 0x0012 | 0x74 | t |
+| 0x0013 | data | **File Data** (byte 1) |
 | ...    | data | **File Data** (bytes 2 - 4079) |
 | 0x1000 | data | **File Data** (byte 4080) |
 
@@ -88,16 +95,17 @@ The start and end values **must** be on block boundaries (0x010000, 0x020000, ..
 
 #### imp003+
 ```squirrel
-#require "SPIFlashFileSystem.class.nut:0.2.1"
+#require "SPIFlashFileSystem.class.nut:1.0.0"
 
 // Allocate the first 2 MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
+sffs.init();
 ```
 
 #### imp001 / imp002
 ```squirrel
 #require "SPIFlash.class.nut:1.0.1"
-#require "SPIFlashFileSystem.class.nut:0.2.1"
+#require "SPIFlashFileSystem.class.nut:1.0.0"
 
 // Configure the external SPIFlash
 flash <- SPIFlash(hardware.spi257, hardware.pin8);
@@ -105,6 +113,7 @@ flash.configure(30000);
 
 // Allocate the first 2 MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000, flash);
+sffs.init();
 ```
 
 ## Class Methods
@@ -114,7 +123,7 @@ sffs <- SPIFlashFileSystem(0x000000, 0x200000, flash);
 The *init* method initializes the FAT, and must be called before invoking other SPIFlashFileSystem methods. The init method takes an optional callback method with 1 parameter, an array of files:
 
 ```squirrel
-#require "SPIFlashFileSystem.class.nut:0.2.1"
+#require "SPIFlashFileSystem.class.nut:1.0.0"
 
 // Allocate the first 2 MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
@@ -191,6 +200,7 @@ file.close();
 file = sffs.open("HelloWorld.txt", "r");
 local data = file.read();
 server.log(data);
+file.close();
 ```
 
 If you attempt to open a non-existant file with `mode = "r"`, a `SPIFlashFileSystem.ERR_FILE_NOT_FOUND` error will be thrown.
@@ -332,7 +342,7 @@ The *close* method closes a file, and writes data to the SPI Flash if required. 
 - seek() from start, end, and current. See the [Squirrel documentation](https://electricimp.com/docs/squirrel/blob/seek/)
 - append mode ("a") in open()
 - Optional asynch version of _scan() which throws a "ready" event when fully loaded
-- Optional SFFS_PAGE_SIZE (4k or multiples of)
+- Optional SFFS_PAGE_SIZE (4k or multiples of) to reduce overhead
 
 # License
 
