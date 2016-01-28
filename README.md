@@ -2,7 +2,7 @@
 
 The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices (using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003+, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002).
 
-**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.0.0"`` to the top of your device code.**
+**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.0.0"` to the top of your device code.**
 
 You can view the library’s source code on [GitHub](https://github.com/electricimp/spiflashfilesystem/tree/v1.0.0).
 
@@ -299,7 +299,7 @@ Returns the current size of the file data.
 ```squirrel
 // Read and log the length of a file
 file <- sffs.open("HelloWorld.txt", "r");
-server.log(file.size());
+server.log(file.len());
 ```
 
 ### read(*[length]*)
