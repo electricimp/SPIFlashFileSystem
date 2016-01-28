@@ -1,14 +1,14 @@
-// Copyright (c) 2015 Electric Imp
+// Copyright (c) 2016 Electric Imp
 // This file is licensed under the MIT License
 // http://opensource.org/licenses/MIT
 
 // File system information
-const SPIFLASHFILESYSTEM_BLOCK_SIZE = 65536;
 const SPIFLASHFILESYSTEM_SECTOR_SIZE = 4096;
 const SPIFLASHFILESYSTEM_PAGE_SIZE = 4096;
 
 // File information
 const SPIFLASHFILESYSTEM_MAX_FNAME_SIZE = 20;
+const SPIFLASHFILESYSTEM_TIMESTAMP_SIZE = 4;
 const SPIFLASHFILESYSTEM_HEADER_SIZE = 6; // id (2) + span (2) + size (2)
 
 // Statuses
@@ -17,11 +17,11 @@ const SPIFLASHFILESYSTEM_STATUS_USED = 0x01;
 const SPIFLASHFILESYSTEM_STATUS_ERASED = 0x02;
 const SPIFLASHFILESYSTEM_STATUS_BAD = 0x03;
 
-const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // SPIFLASH_POSTVERIFY = 1
+const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // Don't verify = 0, Post Verify = 1, Pre Verify = 2, Pre and Post Verify = 3
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [0, 2, 0];
+    static version = [1, 0, 0];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
@@ -96,11 +96,11 @@ class SPIFlashFileSystem {
         scan = null;
 
         // if there was no callback, we're done
-        if (callback == null) return;
+        if (callback) {
+            // Otherwise, invoke callback against each file
+            callback(getFileList());
+        }
 
-        // Otherwise, invoke callback against each file
-        local files = getFileList();
-        callback(files);
     }
 
     // Erases the portion of the SPIFlash dedicated to the fs
@@ -126,8 +126,7 @@ class SPIFlashFileSystem {
         _enable();
 
         // Build a blob to zero out the file
-        local zeros = blob(SPIFLASHFILESYSTEM_HEADER_SIZE + 1 + SPIFLASHFILESYSTEM_MAX_FNAME_SIZE);
-
+        local zeros = blob(SPIFLASHFILESYSTEM_HEADER_SIZE + SPIFLASHFILESYSTEM_TIMESTAMP_SIZE + SPIFLASHFILESYSTEM_MAX_FNAME_SIZE + 1);
         local pages = _fat.forEachPage(fname, function(addr) {
             // Erase the page headers
             local res = _flash.write(addr, zeros, SPIFLASHFILESYSTEM_SPIFLASH_VERIFY);
@@ -148,6 +147,23 @@ class SPIFlashFileSystem {
         _autoGc();
     }
 
+    // Erases all files
+    function eraseFiles() {
+        
+        if (_openFiles.len() > 0) return server.error("Can't call eraseAll() with open files");
+
+        _enable();
+        
+        local files_to_erase = _fat.getFileList();
+        foreach (file in files_to_erase) {
+            eraseFile(file.fname);
+        }
+
+        _disable();
+        
+    }
+    
+    
     // Opens a file to (r)ead, (w)rite, or (a)ppend
     function open(fname, mode) {
         // Validate operation
@@ -166,8 +182,9 @@ class SPIFlashFileSystem {
 
     //-------------------- Utility Methods --------------------//
     // Returns an array of file objects containing: { "id": int, "fname": string, "size": int }
-    function getFileList() {
-        return _fat.getFileList();
+    // The files are order by date stamp or file name
+    function getFileList(orderByDate = false) {
+        return _fat.getFileList(orderByDate);
     }
 
     // Returns true if a file is open, false otherwise
@@ -194,6 +211,27 @@ class SPIFlashFileSystem {
     function dimensions() {
         return { "size": _size, "len": _len, "start": _start, "end": _end }
     }
+
+    // Returns the created time stamp 
+    function created(fileRef) {
+        return _fat.get(fileRef).created;
+    }
+
+    function getFreeSpace() {
+
+        // Smaller files have more overhead than larger files so its impossible to know exactly how much space is free.
+        // This is a guess that average files are about 20kb or 5 pages.
+        // local header_size = (SPIFLASHFILESYSTEM_PAGE_SIZE - SPIFLASHFILESYSTEM_MAX_FNAME_SIZE - SPIFLASHFILESYSTEM_TIMESTAMP_SIZE - SPIFLASHFILESYSTEM_HEADER_SIZE);
+        // local data_size = (SPIFLASHFILESYSTEM_PAGE_SIZE - SPIFLASHFILESYSTEM_HEADER_SIZE)
+        // local page_size_guess = ((header_size + (4 * data_size)) / 5).tointeger();
+
+        local stats = _fat.getStats();        
+        const page_size_guess = 4076;
+        local free = stats.free * page_size_guess;
+        local freeable = (stats.free + stats.erased) * page_size_guess;
+        return { free = free, freeable = freeable };
+    }
+
 
     //-------------------- GARBAGE COLLECTION --------------------//
     // Sets the Garbage Collection threshold
@@ -325,7 +363,13 @@ class SPIFlashFileSystem {
             // If we need a new page
             if (addr % SPIFLASHFILESYSTEM_PAGE_SIZE == 0) {
                 // Find and record the next page
-                addr = _fat.getFreePage();
+                try {
+                    addr = _fat.getFreePage();
+                } catch (e) {
+                    // No free pages, try garbage collection and then die if its still a problem
+                    gc();
+                    addr = _fat.getFreePage();
+                }
 
                 // Update file with new page in FAT
                 _fat.addPage(file.id, addr)
@@ -388,7 +432,9 @@ class SPIFlashFileSystem {
 
             // If this is a zero-index page (start of file)
             if (span == 0) {
-                // Write the filename
+                // Write the time stamp
+                headerBlob.writen(time(), 'i');
+                // Truncate and write the filename
                 headerBlob.writen(fname.len(), 'b');
                 if (fname.len() > SPIFLASHFILESYSTEM_MAX_FNAME_SIZE) {
                     fname = fname.slice(0, SPIFLASHFILESYSTEM_MAX_FNAME_SIZE);
@@ -493,6 +539,7 @@ class SPIFlashFileSystem {
 
                 // Have we got everything?
                 togo -= data.data.len();
+                next += data.data.len();
                 if (togo == 0) break;
             }
 
@@ -510,17 +557,21 @@ class SPIFlashFileSystem {
         _enable();
 
         // Read the header
-        local headerBlob = _flash.read(addr, SPIFLASHFILESYSTEM_HEADER_SIZE + 1 + SPIFLASHFILESYSTEM_MAX_FNAME_SIZE);
+        local headerBlob = _flash.read(addr, SPIFLASHFILESYSTEM_HEADER_SIZE + SPIFLASHFILESYSTEM_MAX_FNAME_SIZE + SPIFLASHFILESYSTEM_TIMESTAMP_SIZE + 1);
 
         // Parse the header
         local pageData = {
             "id":  headerBlob.readn('w'),
             "span": headerBlob.readn('w'),
             "size": headerBlob.readn('w'),
-            "fname": null
+            "fname": null,
+            "created": null
         };
 
         if (pageData.span == 0) {
+            // Read the created timestamp
+            pageData.created = headerBlob.readn('i');
+            // Read the filename
             local fnameLen = headerBlob.readn('b');
             if (fnameLen > 0 && fnameLen <= SPIFLASHFILESYSTEM_MAX_FNAME_SIZE) {
                 pageData.fname = headerBlob.readstring(fnameLen);
@@ -537,7 +588,7 @@ class SPIFlashFileSystem {
         // Read the data if required
         if (readData) {
             local dataOffset = headerBlob.tell();
-            if (len > pageData.size) len = pageData.size;
+            if (from + len > pageData.size) len = pageData.size - from;
             pageData.data <- _flash.read(addr + dataOffset + from, len);
         }
 
@@ -582,12 +633,13 @@ class SPIFlashFileSystem {
 
                 // Make a new file entry, if required
                 if (!(header.id in files)) {
-                    files[header.id] <- { "fn": null, "pg": {}, "sz": {} }
+                    files[header.id] <- { "fn": null, "pg": {}, "sz": {}, "cr": 0 }
                 }
 
                 // Add the span to the files
                 local file = files[header.id];
                 if (header.fname != null) file.fn = header.fname;
+                if (header.created != null) file.cr = header.created;
                 file.pg[header.span] <- page;
                 file.sz[header.span] <- header.size;
             }
@@ -621,6 +673,7 @@ class SPIFlashFileSystem.FAT {
     _pages = null;
     _sizes = null;
     _spans = null;
+    _creates = null;
 
     _map = null;
 
@@ -647,6 +700,7 @@ class SPIFlashFileSystem.FAT {
         _pages = {};
         _sizes = {};
         _spans = {};
+        _creates = {};
 
         // Mapping of filename to fileId
         _names = {};
@@ -658,6 +712,9 @@ class SPIFlashFileSystem.FAT {
                 // Save the filename
                 _names[file.fn] <- fileId;
 
+                // Save the create date
+                _creates[fileId] <- file.cr;
+                
                 // Work out the highest spanId
                 _spans[fileId] <- -1;
                 foreach (span,page in file.pg) {
@@ -733,23 +790,31 @@ class SPIFlashFileSystem.FAT {
             "pages": _pages[fileId],
             "pageCount": _pages[fileId].len() / 2,
             "sizes": _sizes[fileId],
-            "sizeTotal": sizeTotal
+            "sizeTotal": sizeTotal,
+            "created": _creates[fileId]
         };
 
     }
 
     // Returns a simplified list of files for the dev to use
-    function getFileList() {
+    function getFileList(orderByDate = false) {
         local list = [];
-        foreach(filename in _names) {
-            local file = get(filename);
+        foreach (fname,id in _names) {
+            local file = get(fname);
             list.push({
                 "id": file.id,
                 "fname": file.fname,
-                "size": file.sizeTotal
+                "size": file.sizeTotal,
+                "created": file.created
             });
         }
 
+        // Order the files 
+        if (orderByDate) {
+            list.sort(function(a, b) { return a.created <=> b.created }.bindenv(this));
+        } else {
+            list.sort(function(a, b) { return a.fname <=> b.fname }.bindenv(this));
+        }
         return list;
     }
 
@@ -768,6 +833,7 @@ class SPIFlashFileSystem.FAT {
             _pages[_nextId] <- blob();
             _sizes[_nextId] <- blob();
             _spans[_nextId] <- -1;
+            _creates[_nextId] <- 0;
             _nextId = (_nextId + 1) % 65535 + 1; // 1 ... 64k-1
         }
 
@@ -870,6 +936,7 @@ class SPIFlashFileSystem.FAT {
         delete _pages[id];
         delete _sizes[id];
         delete _spans[id];
+        delete _creates[id];
     }
 
     // Iterates over each page of the specified file, and invokes the callback
@@ -966,6 +1033,11 @@ class SPIFlashFileSystem.File {
     // Returns the size of the file
     function len() {
         return _filesystem._fat.get(_fileId).sizeTotal;
+    }
+
+    // Returns the creation timestamp
+    function created() {
+        return _filesystem._fat.get(_fileId).created;
     }
 
     // Reads data from the file
