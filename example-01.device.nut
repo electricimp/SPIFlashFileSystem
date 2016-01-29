@@ -1,5 +1,5 @@
 #require "bullwinkle.class.nut:2.0.1"
-#require "SPIFlashFileSystem.class.nut:1.0.0"
+#require "SPIFlashFileSystem.class.nut:1.0.1"
 
 
 // Initialise everything
