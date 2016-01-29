@@ -10,7 +10,7 @@ You can view the library’s source code on [GitHub](https://github.com/electric
 
 The SFFS divides the flash into 64K blocks, and 4K sectors; and the SPI flash must have at least 1 block allocated for the file system, and start and end bytes must be on block boundaries.
 
-Files are writen to pages that are 1 sector large (4K), and include a 6 byte header containing a 2-byte FileID (what file that page belongs to), a 2-byte SpanID (what order the pages of a particular file should be read in), and a 2-byte length. Additionally, if the page is the first span of a file, it will contain an additional byte to denote the length of the filename, followed by the filename itself.
+Files are written to pages that are 1 sector large (4K), and include a 6 byte header containing a 2-byte FileID (what file that page belongs to), a 2-byte SpanID (what order the pages of a particular file should be read in), and a 2-byte length. Additionally, if the page is the first span of a file, it will contain an additional byte to denote the length of the filename, followed by the filename itself.
 
 Pages cannot be shared amongst multiple files, meaning that the smallest amount of space a file can occupy is 4K.
 
