@@ -112,7 +112,8 @@ class SPIFlashFileSystem {
 
         _enable();
         for (local p = 0; p < _pages; p++) {
-            _flash.erasesector(p * SPIFLASHFILESYSTEM_SECTOR_SIZE);
+            local page = _start + (p * SPIFLASHFILESYSTEM_SECTOR_SIZE);
+            _flash.erasesector(page);
         }
         _disable();
     }
@@ -150,7 +151,7 @@ class SPIFlashFileSystem {
     // Erases all files
     function eraseFiles() {
         
-        if (_openFiles.len() > 0) return server.error("Can't call eraseAll() with open files");
+        if (_openFiles.len() > 0) return server.error("Can't call eraseFiles() with open files");
 
         _enable();
         
