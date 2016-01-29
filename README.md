@@ -8,28 +8,29 @@ You can view the library’s source code on [GitHub](https://github.com/electric
 
 ## Overview of the File System
 
-The SFFS divides the flash into 64K blocks, and 4K sectors; and the SPI flash must have at least 1 block allocated for the file system, and start and end bytes must be on block boundaries.
+The SFFS divides the flash into 64KB blocks, and 4KB sectors. The SPI flash must have at least one block allocated for the file system, and start and end bytes must be on block boundaries.
 
-Files are writen to pages that are 1 sector large (4K), and include a 6 byte header containing a 2-byte FileID (what file that page belongs to), a 2-byte SpanID (what order the pages of a particular file should be read in), and a 2-byte length. Additionally, if the page is the first span of a file, it will contain an additional byte to denote the length of the filename, followed by the filename itself.
+Files are written to pages that are one sector large (4KB), and include a six-byte header containing a two-byte FileID (what file that page belongs to), a two-byte SpanID (what order the pages of a particular file should be read in) and a two-byte length. Additionally, if the page is the first span of a file, it will contain an additional byte to denote the length of the filename, followed by the filename itself.
 
-Pages cannot be shared amongst multiple files, meaning that the smallest amount of space a file can occupy is 4K.
+Pages can’t be shared among multiple files, meaning that the smallest amount of space a file can occupy is 4KB.
 
 ### Example File
 
-Let's look at how the SPIFlashFileSystem stores file information and data. In this example we are going to create a file called "test.txt" that contains 6232 bytes of assorted data (we don't actually care about what the data looks like).
+Let’s look at how the SFFS stores file information and data. In this example we are going to create a file called `"test.txt"` that contains 6232 bytes of assorted data, though we don’t actually care about what the data looks like.
 
-The file will be broken into two pages, each 4096 bytes large. Both pages will contain 6-bytes of header information:
+The file will be broken into two pages, each 4096 bytes large. Both pages will contain six bytes of header information:
 
-- 2 bytes for the FileID
-- 2 bytes for the SpanID
-- 2 bytes for the length of the data in the span/page
+- Two bytes for the FileID
+- Two bytes for the SpanID
+- Two bytes for the length of the data in the span/page
 
 The first span will *also* contain:
-- 4 bytes to record the creation timestamp
-- 1 byte to denote the length of the filename, followed by
-- the filename
 
-After we've written the header information, we fill the remainder of the span with the file's data. We will use all of the available storage in the first span, but only the first 2150 bytes of the second span. The remaining 1946 bytes in the second span will be unusable (as pages cannot be shared amongst multiple files).
+- Four bytes to record the creation timestamp
+- One byte to denote the length of the filename, followed by
+- The filename
+
+After we’ve written the header information, we fill the remainder of the span with the file’s data. We will use all of the available storage in the first span, but only the first 2150 bytes of the second span. The remaining 1946 bytes in the second span will be unusable (as pages cannot be shared among multiple files).
 
 Because each sector contains a FileID and SpanID, the sectors can be anywhere in the allocated SPI Flash, and likely will not be adjacent to one another (as part of the effort to wear level the flash).
 
@@ -77,32 +78,38 @@ Because each sector contains a FileID and SpanID, the sectors can be anywhere in
 | ...    | 0xFF | **Unusable** |
 | 0x1000 | 0xFF | **Unusable** |
 
+## Garbage Collection
+
+When the SFFS deletes a file, it simply marks all of the pages the file was using as erased. In order to use those pages again in the future, we first need erase the sectors that the file used. This is done automatically through a process called garbage collection.
+
+Each time a file is closed, or erased the SFFS determins whether or not it needs to run the garbage collector. It does this by comparing the number of free pages to the *autoGcThreshold*, which can be set with [setAutoGc](#setautogcnumpages) method.
+
 ## Library Classes
 
 The SPIFlashFileSystem consists of three classes:
 
-- [SPIFlashFileSystem](#spiflashfilesystem) - The main programming interface for the filesystem.
-- [SPIFlashFileSystem.File](#spiflashfilesystemfile) - An object representing an open file that you can use to read, write, etc.
-- SPIFlashFileSystem.FAT - The File Allocation Table (not used by application developer).
+- [SPIFlashFileSystem](#spiflashfilesystem) &mdash; The main programming interface for the filesystem
+- [SPIFlashFileSystem.File](#spiflashfilesystemfile) &mdash; An object representing an open file that you can use to read, write, etc
+- SPIFlashFileSystem.FAT &mdash; The File Allocation Table (not used by application developer)
 
-# SPIFlashFileSystem
+## SPIFlashFileSystem
 
 ### Constructor: SPIFlashFileSystem(*[start, end, spiflash]*)
 
-The SPIFlashFileSystem constructor allows you to specify the start and end bytes of the file system in the SPIFlash, as well as an optional SPIFlash object (if you are not using the built in `hardware.spiflash` object).
+The SPIFlashFileSystem constructor allows you to specify the start and end bytes of the file system in the SPIFlash, as well as an optional SPIFlash object (if you are not using the built in [**hardware.spiflash**](https://electricimp.com/docs/api/hardware/spiflash) object).
 
-The start and end values **must** be on block boundaries (0x010000, 0x020000, ...), otherwise a `SPIFlashFileSystem.ERR_INVALID_SPIFLASH_ADDRESS` error will be thrown.
+The start and end values **must** be on block boundaries (0x010000, 0x020000, etc.), otherwise a `SPIFlashFileSystem.ERR_INVALID_SPIFLASH_ADDRESS` error will be thrown.
 
-#### imp003+
+#### imp003 and above
 ```squirrel
 #require "SPIFlashFileSystem.class.nut:1.0.1"
 
-// Allocate the first 2 MB to the file system
+// Allocate the first 2MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
 sffs.init();
 ```
 
-#### imp001 / imp002
+#### imp001/imp002
 ```squirrel
 #require "SPIFlash.class.nut:1.0.1"
 #require "SPIFlashFileSystem.class.nut:1.0.1"
@@ -116,11 +123,11 @@ sffs <- SPIFlashFileSystem(0x000000, 0x200000, flash);
 sffs.init();
 ```
 
-## Class Methods
+## SPIFlashFileSystem Methods
 
 ### init(*[callback]*)
 
-The *init* method initializes the FAT, and must be called before invoking other SPIFlashFileSystem methods. The init method takes an optional callback method with 1 parameter, an array of files:
+The *init()* method initializes the FAT, and must be called before invoking other SPIFlashFileSystem methods. The *init()* method takes an optional callback method with one parameter, an array: a directory of files currently stored within the SPI flash.
 
 ```squirrel
 #require "SPIFlashFileSystem.class.nut:1.0.1"
@@ -138,11 +145,11 @@ sffs.init(function(files) {
 });
 ```
 
-If the *init* method is called while the filesystem has files open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
+If the *init()* method is called while the filesystem has files open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
 
 ### getFileList()
 
-The *getFileList* returns an array of file information identical to that passed into the *init* callback:
+The *getFileList()* returns an array of file information identical to that passed into the *init()* callback:
 
 ```squirrel
 local files = sffs.getFileList();
@@ -155,17 +162,16 @@ foreach(file in files) {
 
 ### fileExists(*filename*)
 
-Returns whether or not a specified file exists.
+Returns `true` or `false` according to whether or not the specified file exists.
 
 ```squirrel
 if (!(sffs.fileExists("firstRun.txt")) {
     // Create the firstRun file
     sffs.open("firstRun.txt", "w");
     sffs.close();
-
-    server.log("This is the first time running this code");
+    server.log("This is the first time running this code. \"firstRun.txt\" created.");
 } else {
-    server.log("Found firstRun.txt");
+    server.log("Found \"firstRun.txt\"");
 }
 ```
 
@@ -173,26 +179,24 @@ if (!(sffs.fileExists("firstRun.txt")) {
 
 Returns the size of a files data in bytes.
 
-**NOTE**: The *fileSize* method returns the size of a file's data, and does not include the file's header information, or unusable space at the end of a page/sector. For example, if we created a file and wrote "hello!" to it, *fileSize* would return `6`, but the file would actually take up 4096 bytes in our filesystem, as that is the smallest page we can write to. See [Overview of the File System](#overview-of-the-file-system) for more information.
+The *fileSize()* method returns the size of a file’s data, and does **not** include the file’s header information or the amount of unusable space at the end of a page/sector. For example, if we created a file and wrote “hello!” to it, *fileSize()* would return `6`, but the file would actually take up 4096 bytes in our filesystem, as that is the smallest page we can write to. See [Overview of the File System](#overview-of-the-file-system) for more information.
 
 ```squirrel
 local filename = "HelloWorld.txt";
 server.log(filename + " is " + sffs.fileSize(filename) + " bytes long");
 ```
 
-## isFileOpen(*filename*)
+### isFileOpen(*filename*)
 
-Returns whether or not the specified file is currently open.
+Returns `true` or `false` according to whether or not the specified file is currently open.
 
 ### open(*filename, mode*)
 
-The *open* method opens the specified file with read (`mode = "r"`) or write (`mode = "w"`) permissions and returns a [SPIFlashFileSystem.File](#spiflashfilesystem-file) object.
+The *open()* method opens the specified file with read (*mode* = `"r"`) or write (*mode* = `"w"`) permissions and returns a [SPIFlashFileSystem.File](#spiflashfilesystem-file) object.
 
 ```squirrel
 // Create a file called HelloWorld.txt
-local file = null;
-
-file = sffs.open("HelloWorld.txt", "w");
+local file = sffs.open("HelloWorld.txt", "w");
 file.write("hello!");
 file.close();
 
@@ -203,15 +207,15 @@ server.log(data);
 file.close();
 ```
 
-If you attempt to open a non-existant file with `mode = "r"`, a `SPIFlashFileSystem.ERR_FILE_NOT_FOUND` error will be thrown.
+If you attempt to open a non-existant file with *mode* = `"r"`, a `SPIFlashFileSystem.ERR_FILE_NOT_FOUND` error will be thrown.
 
-If you attempt to open an existing file with `mode = "w"`, a `SPIFlashFileSystem.ERR_FILE_EXISTS` error will be thrown.
+If you attempt to open an existing file with *mode* = `"w"`, a `SPIFlashFileSystem.ERR_FILE_EXISTS` error will be thrown.
 
 If you attempt to open a file with a mode other than `"r"` or `"w"` a `SPIFlashFileSystem.ERR_UNKNOWN_MODE` error will be thrown.
 
 ### eraseAll()
 
-The *eraseAll* method erases the portion of the SPI Flash allocated to the filesystem.
+The *eraseAll()* method erases the portion of the SPI Flash allocated to the filesystem.
 
 ```squirrel
 // Erase all information in the filesystem
@@ -222,53 +226,47 @@ If the *eraseAll* method is called while the filesystem has files open, a `SPIFl
 
 ### eraseFile(*filename*)
 
-The *eraseFile* method marks a single file as erased. The file's data will not be erased until the [garbage collector](#garbage-collection) is run.
+The *eraseFile()* method marks a single file as erased. The file’s data will not be erased until the [garbage collector](#garbage-collection) is run.
 
 ```squirrel
-// delete testdata.txt
+// Delete testdata.txt
 sffs.removeFile("testdata.txt");
 ```
 
 If the *eraseFile* method is called while the specified file is open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
 
-## Garbage Collection
-
-When the SPIFlashFileSystem deletes a file, it simply marks all of the pages the file was using as erased. In order to use those pages again in the future, we first need erase the sectors that the file used. This is done automatically through a process called garbage collection.
-
-Each time a file is closed, or erased the SPIFlashFileSystem determins whether or not it needs to run the Garbage Collector. It does this by comparing the number of free pages to the *autoGcThreshold*, which can be set with [setAutoGc](#setautogcnumpages) method.
-
 ### setAutoGc(*numPages*)
 
-The *setAutoGc* method sets the autoGcThresgold (default = 4). The garbage collector will automatically run when the filesystem has fewer *autoGcThreshold*
+The *setAutoGc()* method sets the *autoGcThresgold* property The default settings is 4. The garbage collector will automatically run when the filesystem has fewer than *autoGcThreshold* pages.
 
 Setting *numPages* to 0 will turn off automatic garbage collection.
 
 ```squirrel
-// The the filesystem to free pages marked as 'erased' whenever
-// there are 10 or fewer free pages left in the file system.
+// Set the filesystem to free pages marked as 'erased' whenever
+// there are ten or fewer free pages left in the file system.
 sffs.setAutoGc(10);
 ```
 
 ### gc(*[numPages]*)
 
-The *gc* method manually starts the garbage collection process. The SPIFlashFileSystem is designed in such a way that the auto garbage collection *should* be sufficient, and you should never need to manually call the *gc()* method.
+The *gc()* method manually starts the garbage collection process. The SPIFlashFileSystem is designed in such a way that the auto garbage collection *should* be sufficient, and you should never need to manually call the *gc()* method.
 
-If the *numPages* parameter is specified, the garbage collector will free up to *numPages* pages, and return when it completes (this is what happens when the garbage collector runs because the filesystem needs a page and none are free). If the *numPages* parameter is ommited, the garbage collector will run asynchronously in the background (this is what happens when the garbage collector runs because free pages drops below the autoGcThreshold).
+If the *numPages* parameter is specified, the garbage collector will free up to *numPages* pages and return when it completes (this is what happens when the garbage collector runs because the file system needs a page and none are free). If the *numPages* parameter is ommited, the garbage collector will run asynchronously in the background (this is what happens when the garbage collector runs because free pages drops below the value of *autoGcThreshold*).
 
 ## SPIFlashFileSystem.File
 
-A *File* object is returned from the SPIFlashFileSystem each time a file is opened. The *File* object acts as a stream, with an internal pointer, which can be manipulated with a variety of methods in the File class.
+A *SPIFlashFileSystem.File* object is returned from the SPIFlashFileSystem each time a file is opened. The *SPIFlashFileSystem.File* object acts as a stream, with an internal pointer which can be manipulated with a variety of methods in the *SPIFlashFileSystem.File* class.
 
-## Class Methods
+## SPIFlashFileSystem.File Methods
 
-### seek(*pos*)
+### seek(*position*)
 
 Moves the file pointer to a specific location in the file.
 
 ```squirrel
 // Read the last byte of a file
 file <- sffs.open("HelloWorld.txt", "r");
-file.seek(file.len()-1);
+file.seek(file.len() - 1);
 lastByte <- file.read(1);
 ```
 
@@ -278,7 +276,7 @@ Returns the current location of the file pointer.
 
 ### eof()
 
-Returns `true` if the file pointer is at the end of the file,  and returns `false` otherwise.
+Returns `true` if the file pointer is at the end of the file, otherwise returns `false`.
 
 ```squirrel
 // Read a file 1-byte at a time and look for 0xFF
@@ -299,12 +297,12 @@ Returns the current size of the file data.
 ```squirrel
 // Read and log the length of a file
 file <- sffs.open("HelloWorld.txt", "r");
-server.log(file.size());
+server.log(file.len());
 ```
 
 ### read(*[length]*)
 
-Reads information from the file and returns it as a blob, starting at the current file pointer. If a *length* parameter is specified, that many bytes will be read, otherwise the read method will read and return the remained of the file.
+Reads information from the file and returns it as a blob, starting at the current file pointer. If the optional *length* parameter is specified, that many bytes will be read, otherwise the read method will read and return the remainder of the file.
 
 ```squirrel
 // Read and log the contents of a file
@@ -314,9 +312,9 @@ server.log(file.read().tostring());
 
 ### write(*data*)
 
-Writes a string or blob to the end of a file's data opened with mode "w" (if you attempt to write to a file opened with mode "r" a `SPIFlashFileSystem.ERR_WRITE_R_FILE` error will be thrown).
+Writes a string or blob to the end of a file's data opened with mode `"w"`. If you attempt to write to a file opened with mode `"r"` a `SPIFlashFileSystem.ERR_WRITE_R_FILE` error will be thrown.
 
-**NOTE**: The page header is not written to the SPI Flash until the entire page is written, or the [close](#close) method is called.
+**Note** The page header is not written to the SPI Flash until the entire page is written, or the [close](#close) method is called.
 
 In the following example, we download a file in chunks from the agent:
 
@@ -328,22 +326,22 @@ file <- sffs.open("HelloWorld.txt", "w");
 file.write("Hello");
 file.write(" ");
 file.write("World!");
-
 file.close();
 ```
 
 ### close()
 
-The *close* method closes a file, and writes data to the SPI Flash if required. All files that are opened should be closed (regardless of what mode they were opened in).
+The *close()* method closes a file, and writes data to the SPI Flash if required. All files that are opened should be closed, regardless of what mode they were opened in.
 
 *See [write()](#writedata) for sample usage.*
 
-# TODO:
-- seek() from start, end, and current. See the [Squirrel documentation](https://electricimp.com/docs/squirrel/blob/seek/)
-- append mode ("a") in open()
-- Optional asynch version of _scan() which throws a "ready" event when fully loaded
-- Optional SFFS_PAGE_SIZE (4k or multiples of) to reduce overhead
+## To Do
 
-# License
+- Add *start* and *end* parameters to *seek()* as per the [Squirrel Blob obect](https://electricimp.com/docs/squirrel/blob/seek/)
+- Add an append mode (`"a"`) to *open()*
+- Add an optional asynchronous version of *_scan()* which throws a ‘ready’ event when fully loaded
+- Add an optional *SFFS_PAGE_SIZE* (4KB or multiples of 4KB) to reduce overhead
+
+## License
 
 The SPIFlash class is licensed under [MIT License](https://github.com/electricimp/spiflashfilesystem/tree/master/LICENSE).
