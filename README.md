@@ -4,8 +4,6 @@ The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https:/
 
 **To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.0.1"`` to the top of your device code.**
 
-You can view the library’s source code on [GitHub](https://github.com/electricimp/spiflashfilesystem/tree/v1.0.1).
-
 ## Overview of the File System
 
 The SFFS divides the flash into 64KB blocks, and 4KB sectors. The SPI flash must have at least one block allocated for the file system, and start and end bytes must be on block boundaries.
