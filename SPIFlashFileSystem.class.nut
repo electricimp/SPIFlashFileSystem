@@ -21,7 +21,7 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // Don't verify = 0, Post Verify =
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [1, 0, 1];
+    static version = [1, 0, 2];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
@@ -710,6 +710,12 @@ class SPIFlashFileSystem.FAT {
         if (files != null) {
             foreach (fileId,file in files) {
 
+            	// Check the values
+            	if (file.fn == null) {
+            		server.error("Skipping fileId " + fileId + ". Storage appears corrupted. eraseAll() is recommended.")
+            		continue;
+            	}
+
                 // Save the filename
                 _names[file.fn] <- fileId;
 
@@ -863,7 +869,7 @@ class SPIFlashFileSystem.FAT {
 
         // If there were 0 free pages, garbage collect, and start again from the beginning
         if (next == null) {
-            gc(2 * _autoGcThreshold);
+            _filesystem.gc(2 * _filesystem._autoGcThreshold);
             next = map.find(SPIFLASHFILESYSTEM_STATUS_FREE.tochar());
         }
 
