@@ -33,6 +33,7 @@ class SPIFlashFileSystem {
     static ERR_INVALID_SPIFLASH_ADDRESS = "Tried writing to an invalid location."
     static ERR_INVALID_WRITE_DATA = "Can only write blobs and strings to files."
     static ERR_NO_FREE_SPACE = "File system out of space."
+    static ERR_INVALID_FILENAME = "Invalid filename";
 
     // Private:
     _flash = null;          // The SPI Flash object
@@ -167,6 +168,9 @@ class SPIFlashFileSystem {
     
     // Opens a file to (r)ead, (w)rite, or (a)ppend
     function open(fname, mode) {
+    	// Validate filename
+    	if (typeof fname != "string" || fname.len() == 0) throw ERR_INVALID_FILENAME;
+
         // Validate operation
         if      ((mode == "r") && !_fat.fileExists(fname))  throw ERR_FILE_NOT_FOUND;
         else if ((mode == "w") && _fat.fileExists(fname))   throw ERR_FILE_EXISTS;
