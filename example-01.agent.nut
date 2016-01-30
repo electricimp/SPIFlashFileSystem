@@ -12,17 +12,19 @@ bull.on("http.get", function(message, reply) {
 
 	server.log("Requesting " + from + "-" + to + " from " + request.url);
 	http.get(request.url, headers).sendasync(function(resp) {
-	    if (resp.statuscode < 300) {
-	        // Success
-	        reply(resp.body);
-	    } else if (resp.statuscode == 416) {
+        server.log("Response code: " + resp.statuscode + ", data length: " + resp.body.len());
+
+	    if (resp.statuscode == 416 || res.body.len() == 0) {
 	        // No more data in that range
 	        reply(null)
+	    } else if (resp.statuscode < 300) {
+	        // Success
+	        reply(resp.body);
 	    } else {
 	        // Error
-	        server.log("Response code: " + resp.statuscode);
 	        reply(false);
 	    }
+	    
 	});
 
 });

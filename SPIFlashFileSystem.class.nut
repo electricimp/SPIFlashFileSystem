@@ -21,7 +21,7 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // Don't verify = 0, Post Verify =
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [1, 0, 0];
+    static version = [1, 0, 2];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
@@ -33,6 +33,7 @@ class SPIFlashFileSystem {
     static ERR_INVALID_SPIFLASH_ADDRESS = "Tried writing to an invalid location."
     static ERR_INVALID_WRITE_DATA = "Can only write blobs and strings to files."
     static ERR_NO_FREE_SPACE = "File system out of space."
+    static ERR_INVALID_FILENAME = "Invalid filename";
 
     // Private:
     _flash = null;          // The SPI Flash object
@@ -167,6 +168,9 @@ class SPIFlashFileSystem {
     
     // Opens a file to (r)ead, (w)rite, or (a)ppend
     function open(fname, mode) {
+    	// Validate filename
+    	if (typeof fname != "string" || fname.len() == 0) throw ERR_INVALID_FILENAME;
+
         // Validate operation
         if      ((mode == "r") && !_fat.fileExists(fname))  throw ERR_FILE_NOT_FOUND;
         else if ((mode == "w") && _fat.fileExists(fname))   throw ERR_FILE_EXISTS;
@@ -710,6 +714,12 @@ class SPIFlashFileSystem.FAT {
         if (files != null) {
             foreach (fileId,file in files) {
 
+            	// Check the values
+            	if (file.fn == null) {
+            		server.error("Skipping fileId " + fileId + ". Storage appears corrupted. eraseAll() is recommended.")
+            		continue;
+            	}
+
                 // Save the filename
                 _names[file.fn] <- fileId;
 
@@ -863,7 +873,7 @@ class SPIFlashFileSystem.FAT {
 
         // If there were 0 free pages, garbage collect, and start again from the beginning
         if (next == null) {
-            gc(2 * _autoGcThreshold);
+            _filesystem.gc(2 * _filesystem._autoGcThreshold);
             next = map.find(SPIFLASHFILESYSTEM_STATUS_FREE.tochar());
         }
 
