@@ -273,8 +273,10 @@ class SPIFlashFileSystem {
 
                 // Erase the sector and mark the map
                 local addr = _start + thisSector*SPIFLASHFILESYSTEM_SECTOR_SIZE
+				_enable();
                 _flash.erasesector(addr);
                 _fat.markPage(addr, SPIFLASHFILESYSTEM_STATUS_FREE);
+				_disable();
                 collected++;
 
                 // If we've collected enough pages, we're done
