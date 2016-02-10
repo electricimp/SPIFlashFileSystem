@@ -7,7 +7,7 @@ const SPIFLASHFILESYSTEM_SECTOR_SIZE = 4096;
 const SPIFLASHFILESYSTEM_PAGE_SIZE = 4096;
 
 // File information
-const SPIFLASHFILESYSTEM_MAX_FNAME_SIZE = 20;
+const SPIFLASHFILESYSTEM_MAX_FNAME_SIZE = 64;
 const SPIFLASHFILESYSTEM_TIMESTAMP_SIZE = 4;
 const SPIFLASHFILESYSTEM_HEADER_SIZE = 6; // id (2) + span (2) + size (2)
 
@@ -21,7 +21,7 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // Don't verify = 0, Post Verify =
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [1, 0, 2];
+    static version = [1, 0, 3];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
@@ -169,7 +169,7 @@ class SPIFlashFileSystem {
     // Opens a file to (r)ead, (w)rite, or (a)ppend
     function open(fname, mode) {
     	// Validate filename
-    	if (typeof fname != "string" || fname.len() == 0) throw ERR_INVALID_FILENAME;
+    	if (typeof fname != "string" || fname.len() == 0 || fname.len() > SPIFLASHFILESYSTEM_MAX_FNAME_SIZE) throw ERR_INVALID_FILENAME;
 
         // Validate operation
         if      ((mode == "r") && !_fat.fileExists(fname))  throw ERR_FILE_NOT_FOUND;
@@ -443,9 +443,6 @@ class SPIFlashFileSystem {
                 headerBlob.writen(time(), 'i');
                 // Truncate and write the filename
                 headerBlob.writen(fname.len(), 'b');
-                if (fname.len() > SPIFLASHFILESYSTEM_MAX_FNAME_SIZE) {
-                    fname = fname.slice(0, SPIFLASHFILESYSTEM_MAX_FNAME_SIZE);
-                }
                 if (fname.len() > 0) {
                     headerBlob.writestring(fname);
                 }
