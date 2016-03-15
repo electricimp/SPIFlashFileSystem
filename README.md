@@ -2,7 +2,7 @@
 
 The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices (using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003+, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002).
 
-**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.1.0"`` to the top of your device code.**
+**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.1.0"` to the top of your device code.**
 
 ## Overview of the File System
 
