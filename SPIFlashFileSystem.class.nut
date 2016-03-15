@@ -7,7 +7,7 @@ const SPIFLASHFILESYSTEM_SECTOR_SIZE = 4096;
 const SPIFLASHFILESYSTEM_PAGE_SIZE = 4096;
 
 // File information
-const SPIFLASHFILESYSTEM_MAX_FNAME_SIZE = 20;
+const SPIFLASHFILESYSTEM_MAX_FNAME_SIZE = 64;
 const SPIFLASHFILESYSTEM_TIMESTAMP_SIZE = 4;
 const SPIFLASHFILESYSTEM_HEADER_SIZE = 6; // id (2) + span (2) + size (2)
 
@@ -21,7 +21,7 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // Don't verify = 0, Post Verify =
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [1, 0, 2];
+    static version = [1, 1, 0];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
@@ -92,9 +92,7 @@ class SPIFlashFileSystem {
         _fat = null;
 
         // Scan the pages for files
-        local scan = _scan();
-        _fat = SPIFlashFileSystem.FAT(this, scan.files, scan.pages);
-        scan = null;
+        _fat = SPIFlashFileSystem.FAT(this);
 
         // if there was no callback, we're done
         if (callback) {
@@ -169,7 +167,7 @@ class SPIFlashFileSystem {
     // Opens a file to (r)ead, (w)rite, or (a)ppend
     function open(fname, mode) {
     	// Validate filename
-    	if (typeof fname != "string" || fname.len() == 0) throw ERR_INVALID_FILENAME;
+    	if (typeof fname != "string" || fname.len() == 0 || fname.len() > SPIFLASHFILESYSTEM_MAX_FNAME_SIZE) throw ERR_INVALID_FILENAME;
 
         // Validate operation
         if      ((mode == "r") && !_fat.fileExists(fname))  throw ERR_FILE_NOT_FOUND;
@@ -214,7 +212,7 @@ class SPIFlashFileSystem {
 
     // Returns a table with the dimensions of the File System
     function dimensions() {
-        return { "size": _size, "len": _len, "start": _start, "end": _end }
+        return { "size": _size, "len": _len, "start": _start, "end": _end, "pages": _pages }
     }
 
     // Returns the created time stamp 
@@ -225,13 +223,9 @@ class SPIFlashFileSystem {
     function getFreeSpace() {
 
         // Smaller files have more overhead than larger files so its impossible to know exactly how much space is free.
-        // This is a guess that average files are about 20kb or 5 pages.
-        // local header_size = (SPIFLASHFILESYSTEM_PAGE_SIZE - SPIFLASHFILESYSTEM_MAX_FNAME_SIZE - SPIFLASHFILESYSTEM_TIMESTAMP_SIZE - SPIFLASHFILESYSTEM_HEADER_SIZE);
-        // local data_size = (SPIFLASHFILESYSTEM_PAGE_SIZE - SPIFLASHFILESYSTEM_HEADER_SIZE)
-        // local page_size_guess = ((header_size + (4 * data_size)) / 5).tointeger();
-
+        // This is a total guess of how much space an average sector would have for data.
         local stats = _fat.getStats();        
-        const page_size_guess = 4076;
+        const page_size_guess = 4000;
         local free = stats.free * page_size_guess;
         local freeable = (stats.free + stats.erased) * page_size_guess;
         return { free = free, freeable = freeable };
@@ -443,9 +437,6 @@ class SPIFlashFileSystem {
                 headerBlob.writen(time(), 'i');
                 // Truncate and write the filename
                 headerBlob.writen(fname.len(), 'b');
-                if (fname.len() > SPIFLASHFILESYSTEM_MAX_FNAME_SIZE) {
-                    fname = fname.slice(0, SPIFLASHFILESYSTEM_MAX_FNAME_SIZE);
-                }
                 if (fname.len() > 0) {
                     headerBlob.writestring(fname);
                 }
@@ -618,45 +609,6 @@ class SPIFlashFileSystem {
         return pageData;
     }
 
-    //--------------------------------------------------------------------------
-    function _scan() {
-
-        local mem = imp.getmemoryfree();
-        local files = {};
-        local pages = blob(_pages);
-
-        _enable();
-
-        // Scan the headers of each page, working out what is in each
-        for (local p = 0; p < _pages; p++) {
-
-            local page = _start + (p * SPIFLASHFILESYSTEM_PAGE_SIZE);
-            local header = _readPage(page, false);
-
-            // Record this page's status
-            pages.writen(header.status, 'b');
-
-            if (header.status == SPIFLASHFILESYSTEM_STATUS_USED) {
-
-                // Make a new file entry, if required
-                if (!(header.id in files)) {
-                    files[header.id] <- { "fn": null, "pg": {}, "sz": {}, "cr": 0 }
-                }
-
-                // Add the span to the files
-                local file = files[header.id];
-                if (header.fname != null) file.fn = header.fname;
-                if (header.created != null) file.cr = header.created;
-                file.pg[header.span] <- page;
-                file.sz[header.span] <- header.size;
-            }
-        }
-
-        _disable();
-
-        return { "files": files, "pages": pages };
-    }
-
     // Methods for countin
     function _enable() {
         if (_enables++ == 0) {
@@ -687,21 +639,7 @@ class SPIFlashFileSystem.FAT {
     _nextId = 1;
 
     //--------------------------------------------------------------------------
-    constructor(filesystem, files = null, map = null) {
-
-        _filesystem = filesystem;
-
-        if (typeof files == "integer" && map == null) {
-            //  Make a new, empty page map
-            _map = blob(files);
-            for (local i = 0; i < _map.len(); i++) {
-                _map[i] = SPIFLASHFILESYSTEM_STATUS_FREE;
-            }
-            files = null;
-        } else {
-            // Store the page map supplied
-            _map = map;
-        }
+    constructor(filesystem, pages = null) {
 
         // Mapping of fileId to pages, sizes and spanIds
         _pages = {};
@@ -712,54 +650,86 @@ class SPIFlashFileSystem.FAT {
         // Mapping of filename to fileId
         _names = {};
 
-        // Pull the file details out and make a more efficient FAT
-        if (files != null) {
-            foreach (fileId,file in files) {
+        // Store the parent file system object
+        _filesystem = filesystem;
 
-            	// Check the values
-            	if (file.fn == null) {
-            		server.error("Skipping fileId " + fileId + ". Storage appears corrupted. eraseAll() is recommended.")
-            		continue;
-            	}
+        if (typeof pages == "integer") {
+            //  Make a new, empty page map
+            _map = blob(pages);
+            for (local i = 0; i < _map.len(); i++) {
+                _map[i] = SPIFLASHFILESYSTEM_STATUS_FREE;
+            }
+        } else {
+            // Build a new FAT by scanning the disk
+            scan();
+        }
+    }
 
-                // Save the filename
-                _names[file.fn] <- fileId;
 
-                // Save the create date
-                _creates[fileId] <- file.cr;
-                
-                // Work out the highest spanId
-                _spans[fileId] <- -1;
-                foreach (span,page in file.pg) {
-                    if (span > _spans[fileId]) {
-                        _spans[fileId] = span;
-                    }
-                }
+    // Scans the file system for FAT entries
+    function scan() {
 
-                // Save the pages as a single blob
-                _pages[fileId] <- blob(file.pg.len() * 2);
-                local pages = pagesOrderedBySpan(file.pg);
-                foreach (page in pages) {
-                    _pages[fileId].writen(page / SPIFLASHFILESYSTEM_PAGE_SIZE, 'w');
-                }
-                pages = null;
+        local _pages_t = {};
+        local _sizes_t = {};
+        local dim = _filesystem.dimensions();
+        _map = blob(dim.pages);
 
-                // Save the sizes
-                _sizes[fileId] <- blob(file.pg.len() * 2);
-                local sizes = pagesOrderedBySpan(file.sz);
-                foreach (size in sizes) {
-                    _sizes[fileId].writen(size, 'w');
-                }
-                sizes = null;
+        _filesystem._enable();
 
-                // Save the file id
-                if (fileId >= _nextId) {
-                    _nextId = fileId + 1;
-                }
+        // Scan the headers of each page, working out what is in each
+        for (local p = 0; p < dim.pages; p++) {
+
+        	local page = dim.start + (p * SPIFLASHFILESYSTEM_PAGE_SIZE);
+        	local header = _filesystem._readPage(page, false);
+
+        	// Record this page's status
+        	_map.writen(header.status, 'b');
+
+        	if (header.status == SPIFLASHFILESYSTEM_STATUS_USED) {
+                // Add the span to the fat
+                if (!(header.id in _pages_t)) {
+                    _pages_t[header.id] <- {};
+                    _sizes_t[header.id] <- {};
+                    _creates[header.id] <- 0;
+                    _spans[header.id] <- -1;
+                 }
+                _pages_t[header.id][header.span] <- page;
+                _sizes_t[header.id][header.span] <- header.size;
+                if (header.created != null) _creates[header.id] <- header.created;
+                if (header.fname != null) _names[header.fname] <- header.id;
+
+                // Work out the highest spanId and fileId
+                if (header.span > _spans[header.id]) _spans[header.id] = header.span;
+                if (header.id >= _nextId) _nextId = header.id + 1;
+
             }
         }
 
+        _filesystem._disable();
+
+
+        // Pull the file details out and make a more efficient FAT
+        foreach (fileName,fileId in _names) {
+
+            // Save the pages as a single blob
+            _pages[fileId] <- blob(_pages_t[fileId].len() * 2);
+            local pages = pagesOrderedBySpan(_pages_t[fileId]);
+            foreach (page in pages) {
+                _pages[fileId].writen(page / SPIFLASHFILESYSTEM_PAGE_SIZE, 'w');
+            }
+            pages = null;
+
+            // Save the sizes
+            _sizes[fileId] <- blob(_sizes_t[fileId].len() * 2);
+            local sizes = pagesOrderedBySpan(_sizes_t[fileId]);
+            foreach (size in sizes) {
+                _sizes[fileId].writen(size, 'w');
+             }
+            sizes = null;
+
+         }
     }
+
 
     // Gets the FAT information for a specified file reference (id or name)
     function get(fileRef) {
