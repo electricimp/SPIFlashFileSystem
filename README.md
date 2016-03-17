@@ -43,7 +43,7 @@
 
 <br />
 
-[![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=develop)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
+[![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=master)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
 
 # SPIFlashFileSystem 1.2.0
 
