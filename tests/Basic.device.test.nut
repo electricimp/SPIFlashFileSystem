@@ -1,5 +1,6 @@
 /**
-  * This test case expects Amy board with 4-mbit flash chip
+  * Currently this test case expects Amy board with 4-mbit flash chip
+  * todo: use SPIFlash library for 001/002
   */
 
 class BasicTestCase extends ImpTestCase {
@@ -14,6 +15,9 @@ class BasicTestCase extends ImpTestCase {
      */
     function setUp() {
         return Promise(function(ok, err) {
+            // check that we're on  003+
+            this.assertTrue("spiflash" in hardware);
+
             // get actual flash size
             hardware.spiflash.enable();
             local size = hardware.spiflash.size();
