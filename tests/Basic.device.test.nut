@@ -197,7 +197,7 @@ class BasicTestCase extends ImpTestCase {
     function test10_Created() {
         // test that created date on newly created file == time()
         this.sffs.open("file4.txt", "w").close();
-        this.assertClose(this.sffs.created("file4.txt"), time(), 1);
+        this.assertClose(time(), this.sffs.created("file4.txt"), 1);
     }
 
     /**
