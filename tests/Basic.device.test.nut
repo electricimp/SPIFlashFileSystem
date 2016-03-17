@@ -38,7 +38,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .fileList() with empty FAT
      */
-    function test1_FileListWhenEmpty() {
+    function test01_FileListWhenEmpty() {
         // chekc that nothing is listed yet
         local files = this.sffs.getFileList();
         this.assertTrue(type(files) == "array");
@@ -48,7 +48,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .fileList() after cteating a file
      */
-    function test2_FileListNonEmpty() {
+    function test02_FileListNonEmpty() {
         // create empty file
         this.sffs.open("file1.txt", "w").close();
 
@@ -56,13 +56,14 @@ class BasicTestCase extends ImpTestCase {
         local files = this.sffs.getFileList();
         this.assertTrue(type(files) == "array");
         this.assertEqual(1, files.len());
+        files[0].created <- 0;
         this.assertDeepEqual([{"size":0,"id":1,"created":0,"fname":"file1.txt"}], files);
     }
 
     /**
      * Test .fileExists()
      */
-    function test3_fileExists() {
+    function test03_fileExists() {
         this.assertEqual(true, this.sffs.fileExists("file1.txt"));
         this.assertEqual(false, this.sffs.fileExists("nonexisting-file.txt"));
         this.assertEqual(false, this.sffs.fileExists(""));
@@ -72,7 +73,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .fileSize()
      */
-    function test4_fileSize() {
+    function test04_fileSize() {
         // empty file
         this.assertEqual(0, this.sffs.fileSize("file1.txt"));
 
@@ -93,7 +94,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .isFileOpen()
      */
-    function test5_isFileOpen() {
+    function test05_isFileOpen() {
         // existing closed file
         this.assertEqual(false, this.sffs.isFileOpen("file1.txt"));
 
@@ -111,7 +112,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .open()
      */
-    function test6_Open() {
+    function test06_Open() {
         local f;
 
         // existing file for reading
@@ -139,7 +140,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .eraseFile()
      */
-    function test7_EraseFile() {
+    function test07_EraseFile() {
         // existing file
         this.sffs.eraseFile("file1.txt");
         this.assertEqual(false, this.sffs.fileExists("file1.txt"));
@@ -159,7 +160,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .eraseFiles()
      */
-    function test8_EraseFiles() {
+    function test08_EraseFiles() {
         local files;
 
         // check that there are files
@@ -193,7 +194,7 @@ class BasicTestCase extends ImpTestCase {
      */
     function tearDown() {
         this.sffs.eraseAll();
-        this.test1_FileListWhenEmpty();
+        this.test01_FileListWhenEmpty();
         return "Flash erased";
     }
 }
