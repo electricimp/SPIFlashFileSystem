@@ -5,6 +5,7 @@
 
 class BasicTestCase extends ImpTestCase {
 
+    size = 0;
     sffs = null;
 
     /**
@@ -16,19 +17,20 @@ class BasicTestCase extends ImpTestCase {
     function setUp() {
         return Promise(function(ok, err) {
             // check that we're on  003+
+
             this.assertTrue("spiflash" in hardware, "imp003 and above is expected");
 
             // get actual flash size
             hardware.spiflash.enable();
-            local size = hardware.spiflash.size();
+            this.size = hardware.spiflash.size();
             hardware.spiflash.disable();
 
             // init sffs
             this.sffs = SPIFlashFileSystem(0, size);
             this.sffs.eraseAll();
             this.sffs.init(function (v) {
-                ok("Have " + size.tofloat() / 1024 + "KB of flash available")
-            });
+                ok("Have " + this.size.tofloat() / 1024 + "KB of flash available")
+            }.bindenv(this));
 
         }.bindenv(this));
     }
