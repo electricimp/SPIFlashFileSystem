@@ -16,7 +16,7 @@ class BasicTestCase extends ImpTestCase {
     function setUp() {
         return Promise(function(ok, err) {
             // check that we're on  003+
-            this.assertTrue("spiflash" in hardware);
+            this.assertTrue("spiflash" in hardware, "imp003 and above is expected");
 
             // get actual flash size
             hardware.spiflash.enable();
@@ -131,6 +131,26 @@ class BasicTestCase extends ImpTestCase {
         f = this.sffs.open("file3.txt", "w");
         this.assertTrue(f instanceof SPIFlashFileSystem.File);
         this.assertTrue(this.sffs.isFileOpen("file3.txt"));
+        f.close();
+    }
+
+    /**
+     * Test .eraseFile()
+     */
+    function test7_EraseFile() {
+        // existing file
+        this.sffs.eraseFile("file1.txt");
+        this.assertEqual(false, this.sffs.fileExists("file1.txt"));
+
+        // non-existing file
+        this.assertThrowsError(function () {
+            this.sffs.eraseFile("nonexisting-file.txt");
+        }, this);
+
+        // existing open file
+        local f = this.sffs.open("file2.txt", "r");
+        this.assertThrowsError(@ () this.sffs.eraseFile("file2.txt"), this);
+        this.assertEqual(true, this.sffs.fileExists("file2.txt"));
         f.close();
     }
 
