@@ -270,7 +270,7 @@ The *eraseFile()* method marks a single file as erased. The file’s data will n
 
 ```squirrel
 // Delete testdata.txt
-sffs.removeFile("testdata.txt");
+sffs.eraseFile("testdata.txt");
 ```
 
 If the *eraseFile* method is called while the specified file is open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
