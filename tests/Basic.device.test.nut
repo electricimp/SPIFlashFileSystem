@@ -173,6 +173,20 @@ class BasicTestCase extends ImpTestCase {
     }
 
     /**
+     * Test .dimensions()
+     */
+    function test09_Dimensions() {
+        this.assertDeepEqual(
+            {
+                "start": 0,
+                "size": this.size,
+                "end": this.size,
+                "len": this.size,
+                "pages": this.size / SPIFLASHFILESYSTEM_PAGE_SIZE
+            },
+            this.sffs.dimensions()
+        );
+    }
      * Erase flash
      */
     function tearDown() {
