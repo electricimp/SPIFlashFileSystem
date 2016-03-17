@@ -340,6 +340,11 @@ The *close()* method closes a file, and writes data to the SPI Flash if required
 - Add an optional asynchronous version of *_scan()* which throws a ‘ready’ event when fully loaded
 - Add an optional *SFFS_PAGE_SIZE* (4KB or multiples of 4KB) to reduce overhead
 
+## Development
+
+This repository uses [git-flow](http://jeffkreeftmeijer.com/2010/why-arent-you-using-git-flow/).
+Please make your pull requests to the __develop__ branch.
+
 ## License
 
 The SPIFlash class is licensed under [MIT License](https://github.com/electricimp/spiflashfilesystem/tree/master/LICENSE).
