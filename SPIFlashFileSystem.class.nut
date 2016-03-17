@@ -21,7 +21,7 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // Don't verify = 0, Post Verify =
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [1, 1, 0];
+    static version = [1, 2, 0];
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
@@ -816,7 +816,7 @@ class SPIFlashFileSystem.FAT {
             _pages[_nextId] <- blob();
             _sizes[_nextId] <- blob();
             _spans[_nextId] <- -1;
-            _creates[_nextId] <- 0;
+            _creates[_nextId] <- time();
             _nextId = (_nextId + 1) % 65535 + 1; // 1 ... 64k-1
         }
 
