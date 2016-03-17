@@ -68,10 +68,31 @@ class BasicTestCase extends ImpTestCase {
     }
 
     /**
+     * Test .fileSize()
+     */
+    function test4_fileSize() {
+        // empty file
+        this.assertEqual(0, this.sffs.fileSize("file1.txt"));
+
+        // nonexistent file
+        this.assertThrowsError(function () {
+            local s = this.sffs.fileSize("nonexisting-file.txt");
+        }, this);
+
+        // create file
+        local f = this.sffs.open("file2.txt", "w")
+        f.write(blob(100))
+        f.close();
+
+        // check existing file size
+        this.assertEqual(100, this.sffs.fileSize("file2.txt"));
+    }
+
+    /**
      * Erase flash
      */
     function tearDown() {
         this.sffs.eraseAll();
-        return "Erased flash";
+        return "Flash erased";
     }
 }
