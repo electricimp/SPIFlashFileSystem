@@ -1,9 +1,11 @@
 /**
+  * Test case to test SPIFlashFileSystem funstionality
+  *
   * Currently this test case expects Amy board with 4-mbit flash chip
   * todo: use SPIFlash library for 001/002
   */
 
-class BasicTestCase extends ImpTestCase {
+class SFFSTestCase extends ImpTestCase {
 
     size = 0;
     sffs = null;
