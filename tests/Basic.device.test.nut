@@ -52,11 +52,16 @@ class BasicTestCase extends ImpTestCase {
         // create empty file
         this.sffs.open("file1.txt", "w").close();
 
-        // check taht it's listed
+        // check that it's listed
         local files = this.sffs.getFileList();
         this.assertTrue(type(files) == "array");
         this.assertEqual(1, files.len());
-        files[0].created <- 0;
+
+        // check creation date
+        this.assertClose(time(), files[0].created, 1);
+
+        // check the rest of the files data structure
+        files[0]["created"] <- 0;
         this.assertDeepEqual([{"size":0,"id":1,"created":0,"fname":"file1.txt"}], files);
     }
 
