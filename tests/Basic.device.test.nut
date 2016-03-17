@@ -54,6 +54,16 @@ class BasicTestCase extends ImpTestCase {
     }
 
     /**
+     * Test .fileExists()
+     */
+    function test3_fileExists() {
+        this.assertEqual(true, this.sffs.fileExists("file1.txt"));
+        this.assertEqual(false, this.sffs.fileExists("nonexisting-file.txt"));
+        this.assertEqual(false, this.sffs.fileExists(""));
+        this.assertEqual(false, this.sffs.fileExists("\0"));
+    }
+
+    /**
      * Erase flash
      */
     function tearDown() {
