@@ -76,7 +76,7 @@ class BasicTestCase extends ImpTestCase {
 
         // nonexistent file
         this.assertThrowsError(function () {
-            local s = this.sffs.fileSize("nonexisting-file.txt");
+            this.sffs.fileSize("nonexisting-file.txt");
         }, this);
 
         // create file
@@ -97,12 +97,40 @@ class BasicTestCase extends ImpTestCase {
 
         // non-existing file
         this.assertThrowsError(function () {
-            local s = this.sffs.isFileOpen("nonexisting-file.txt");
+            this.sffs.isFileOpen("nonexisting-file.txt");
         }, this);
 
         // open file
         local f = this.sffs.open("file2.txt", "r");
         this.assertEqual(true, this.sffs.isFileOpen("file2.txt"));
+        f.close();
+    }
+
+    /**
+     * Test .open()
+     */
+    function test6_Open() {
+        local f;
+
+        // existing file for reading
+        f = this.sffs.open("file1.txt", "r");
+        this.assertTrue(f instanceof SPIFlashFileSystem.File);
+        f.close();
+
+        // non-existing file for reading
+        this.assertThrowsError(function () {
+            this.sffs.open("nonexisting-file.txt", "r");
+        }, this);
+
+        // existing file for writing
+        this.assertThrowsError(function () {
+            this.sffs.open("file1.txt", "w");
+        }, this);
+
+        // non-existing file for writing
+        f = this.sffs.open("file3.txt", "w");
+        this.assertTrue(f instanceof SPIFlashFileSystem.File);
+        this.assertTrue(this.sffs.isFileOpen("file3.txt"));
         f.close();
     }
 
