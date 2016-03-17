@@ -22,6 +22,8 @@
     - [eraseFile(*filename*)](#erasefilefilename)
     - [setAutoGc(*numPages*)](#setautogcnumpages)
     - [gc(*[numPages]*)](#gcnumpages)
+    - [created(*fileRef*)](#createdfileref)
+    - [dimensions()](#dimensions)
   - [SPIFlashFileSystem.File](#spiflashfilesystemfile)
   - [SPIFlashFileSystem.File Methods](#spiflashfilesystemfile-methods)
     - [seek(*position*)](#seekposition)
@@ -31,11 +33,17 @@
     - [read(*[length]*)](#readlength)
     - [write(*data*)](#writedata)
     - [close()](#close)
+  - [Testing](#testing)
+    - [Hardware](#hardware)
   - [To Do](#to-do)
   - [Development](#development)
   - [License](#license)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+<br />
+
+[![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=develop)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
 
 # SPIFlashFileSystem 1.1.0
 
@@ -204,8 +212,7 @@ Returns `true` or `false` according to whether or not the specified file exists.
 ```squirrel
 if (!(sffs.fileExists("firstRun.txt")) {
     // Create the firstRun file
-    sffs.open("firstRun.txt", "w");
-    sffs.close();
+    sffs.open("firstRun.txt", "w").close();
     server.log("This is the first time running this code. \"firstRun.txt\" created.");
 } else {
     server.log("Found \"firstRun.txt\"");
@@ -267,7 +274,7 @@ The *eraseFile()* method marks a single file as erased. The file’s data will n
 
 ```squirrel
 // Delete testdata.txt
-sffs.removeFile("testdata.txt");
+sffs.eraseFile("testdata.txt");
 ```
 
 If the *eraseFile* method is called while the specified file is open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
@@ -289,6 +296,36 @@ sffs.setAutoGc(10);
 The *gc()* method manually starts the garbage collection process. The SPIFlashFileSystem is designed in such a way that the auto garbage collection *should* be sufficient, and you should never need to manually call the *gc()* method.
 
 If the *numPages* parameter is specified, the garbage collector will free up to *numPages* pages and return when it completes (this is what happens when the garbage collector runs because the file system needs a page and none are free). If the *numPages* parameter is ommited, the garbage collector will run asynchronously in the background (this is what happens when the garbage collector runs because free pages drops below the value of *autoGcThreshold*).
+
+### created(*fileRef*)
+
+Gets the creation timestamp for a specified file reference (id or name).
+
+```squirrel
+// get creation date by name
+sffs.created("file.txt");
+
+// get creation date by id
+sffs.created(5);
+```
+
+### dimensions()
+
+Returns a table with the dimensions of the File System:
+
+```squirrel
+{
+    "start": /* First byte of SPIFlash allocated to file system */,
+    "size": /* The size of the SPI Flash */,
+    "end": /* Last byte of SPIFlash allocated to file system */,
+    "len": /* Size of File System */,
+    "pages": /* Number of pages available in the File system*/
+}
+```
+
+```squirrel
+local d = sffs.dimensions();
+```
 
 ## SPIFlashFileSystem.File
 
@@ -372,12 +409,38 @@ The *close()* method closes a file, and writes data to the SPI Flash if required
 
 *See [write()](#writedata) for sample usage.*
 
+
+## Testing
+
+Repository contains [impUnit](https://github.com/electricimp/impUnit) tests and a configuration for [impTest](https://github.com/electricimp/impTest).
+
+Tests can be launched with:
+
+```bash
+imptest test
+```
+
+By default configuration for the testing is read from [.imptest](https://github.com/electricimp/impTest/blob/develop/docs/imptest-spec.md).
+
+To run test with your settings (for example while you are developing), create your copy of **.imptest** file and name it something like **.imptest.local**, then run tests with:
+
+ ```bash
+ imptest test -c .imptest.local
+ ```
+
+### Hardware
+
+Tests require an [Amy](https://electricimp.com/docs/hardware/resources/reference-designs/amy/) board or [imp003 Evaluation Board](https://electricimp.com/docs/hardware/imp003evb/). Any other boards with imp003 and above containing SPI flash with available user space may work too.
+
+imp001/002 support is planned.
+
 ## To Do
 
 - Add *start* and *end* parameters to *seek()* as per the [Squirrel Blob obect](https://electricimp.com/docs/squirrel/blob/seek/)
 - Add an append mode (`"a"`) to *open()*
 - Add an optional asynchronous version of *_scan()* which throws a ‘ready’ event when fully loaded
 - Add an optional *SFFS_PAGE_SIZE* (4KB or multiples of 4KB) to reduce overhead
+- Support imp001/002 in testing
 
 ## Development
 
