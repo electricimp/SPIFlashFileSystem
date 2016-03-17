@@ -1,3 +1,42 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+
+- [SPIFlashFileSystem 1.1.0](#spiflashfilesystem-110)
+  - [Overview of the File System](#overview-of-the-file-system)
+    - [Example File](#example-file)
+  - [Garbage Collection](#garbage-collection)
+  - [Library Classes](#library-classes)
+  - [SPIFlashFileSystem](#spiflashfilesystem)
+    - [Constructor: SPIFlashFileSystem(*[start, end, spiflash]*)](#constructor-spiflashfilesystemstart-end-spiflash)
+      - [imp003 and above](#imp003-and-above)
+      - [imp001/imp002](#imp001imp002)
+  - [SPIFlashFileSystem Methods](#spiflashfilesystem-methods)
+    - [init(*[callback]*)](#initcallback)
+    - [getFileList()](#getfilelist)
+    - [fileExists(*filename*)](#fileexistsfilename)
+    - [fileSize(*filename*)](#filesizefilename)
+    - [isFileOpen(*filename*)](#isfileopenfilename)
+    - [open(*filename, mode*)](#openfilename-mode)
+    - [eraseAll()](#eraseall)
+    - [eraseFile(*filename*)](#erasefilefilename)
+    - [setAutoGc(*numPages*)](#setautogcnumpages)
+    - [gc(*[numPages]*)](#gcnumpages)
+  - [SPIFlashFileSystem.File](#spiflashfilesystemfile)
+  - [SPIFlashFileSystem.File Methods](#spiflashfilesystemfile-methods)
+    - [seek(*position*)](#seekposition)
+    - [tell()](#tell)
+    - [eof()](#eof)
+    - [len()](#len)
+    - [read(*[length]*)](#readlength)
+    - [write(*data*)](#writedata)
+    - [close()](#close)
+  - [To Do](#to-do)
+  - [Development](#development)
+  - [License](#license)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 # SPIFlashFileSystem 1.1.0
 
 The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices (using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003+, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002).
