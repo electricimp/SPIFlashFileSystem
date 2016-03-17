@@ -2,7 +2,7 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 
-- [SPIFlashFileSystem 1.1.0](#spiflashfilesystem-110)
+- [SPIFlashFileSystem 1.2.0](#spiflashfilesystem-120)
   - [Overview of the File System](#overview-of-the-file-system)
     - [Example File](#example-file)
   - [Garbage Collection](#garbage-collection)
@@ -43,13 +43,13 @@
 
 <br />
 
-[![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=develop)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
+[![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=master)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
 
-# SPIFlashFileSystem 1.1.0
+# SPIFlashFileSystem 1.2.0
 
 The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices (using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003+, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002).
 
-**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.1.0"` to the top of your device code.**
+**To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.2.0"` to the top of your device code.**
 
 ## Overview of the File System
 
@@ -147,7 +147,7 @@ The start and end values **must** be on block boundaries (0x010000, 0x020000, et
 
 #### imp003 and above
 ```squirrel
-#require "SPIFlashFileSystem.class.nut:1.1.0"
+#require "SPIFlashFileSystem.class.nut:1.2.0"
 
 // Allocate the first 2MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
@@ -157,7 +157,7 @@ sffs.init();
 #### imp001/imp002
 ```squirrel
 #require "SPIFlash.class.nut:1.0.1"
-#require "SPIFlashFileSystem.class.nut:1.1.0"
+#require "SPIFlashFileSystem.class.nut:1.2.0"
 
 // Configure the external SPIFlash
 flash <- SPIFlash(hardware.spi257, hardware.pin8);
@@ -175,7 +175,7 @@ sffs.init();
 The *init()* method initializes the FAT, and must be called before invoking other SPIFlashFileSystem methods. The *init()* method takes an optional callback method with one parameter, an array: a directory of files currently stored within the SPI flash.
 
 ```squirrel
-#require "SPIFlashFileSystem.class.nut:1.1.0"
+#require "SPIFlashFileSystem.class.nut:1.2.0"
 
 // Allocate the first 2 MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
