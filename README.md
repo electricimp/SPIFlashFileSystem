@@ -31,6 +31,8 @@
     - [read(*[length]*)](#readlength)
     - [write(*data*)](#writedata)
     - [close()](#close)
+  - [Testing](#testing)
+    - [Hardware Required](#hardware-required)
   - [To Do](#to-do)
   - [Development](#development)
   - [License](#license)
@@ -39,7 +41,7 @@
 
 <br />
 
-[![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=feature/imptests)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
+[![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=develop)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
 
 # SPIFlashFileSystem 1.1.0
 
@@ -375,12 +377,38 @@ The *close()* method closes a file, and writes data to the SPI Flash if required
 
 *See [write()](#writedata) for sample usage.*
 
+
+## Testing
+
+Repository contains [impUnit](https://github.com/electricimp/impUnit) tests and a configuration for [impTest](https://github.com/electricimp/impTest).
+
+Tests can be launched with:
+
+```bash
+imptest test
+```
+
+By default configuration for the testing is read from [.imptest](https://github.com/electricimp/impTest/blob/develop/docs/imptest-spec.md).
+
+To run test with your settings (for example while you are developing), create your copy of **.imptest** file and name it something like **.imptest.local**, then run tests with:
+
+ ```bash
+ imptest test -c .imptest.local
+ ```
+
+### Hardware Required
+
+Tests require an [Amy](https://electricimp.com/docs/hardware/resources/reference-designs/amy/) board or [imp003 Evaluation Board](https://electricimp.com/docs/hardware/imp003evb/). Any other boards with imp003 and above containing SPI flash with available user space may work too.
+
+imp001/002 support is planned.
+
 ## To Do
 
 - Add *start* and *end* parameters to *seek()* as per the [Squirrel Blob obect](https://electricimp.com/docs/squirrel/blob/seek/)
 - Add an append mode (`"a"`) to *open()*
 - Add an optional asynchronous version of *_scan()* which throws a ‘ready’ event when fully loaded
 - Add an optional *SFFS_PAGE_SIZE* (4KB or multiples of 4KB) to reduce overhead
+- Support imp001/002 in testing
 
 ## Development
 
