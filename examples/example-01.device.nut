@@ -1,5 +1,5 @@
 #require "bullwinkle.class.nut:2.0.1"
-#require "SPIFlashFileSystem.class.nut:1.1.0"
+#require "SPIFlashFileSystem.class.nut:1.2.0"
 
 
 // Function to recursively get the next chunk of the URL until it is finished
