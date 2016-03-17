@@ -816,7 +816,7 @@ class SPIFlashFileSystem.FAT {
             _pages[_nextId] <- blob();
             _sizes[_nextId] <- blob();
             _spans[_nextId] <- -1;
-            _creates[_nextId] <- 0;
+            _creates[_nextId] <- time();
             _nextId = (_nextId + 1) % 65535 + 1; // 1 ... 64k-1
         }
 
