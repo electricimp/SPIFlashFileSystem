@@ -36,7 +36,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .fileList() with empty FAT
      */
-    function test1_FileListEmpty() {
+    function test1_FileListWhenEmpty() {
         // chekc that nothing is listed yet
         local files = this.sffs.getFileList();
         this.assertTrue(type(files) == "array");
@@ -155,10 +155,29 @@ class BasicTestCase extends ImpTestCase {
     }
 
     /**
+     * Test .eraseFiles()
+     */
+    function test8_EraseFiles() {
+        local files;
+
+        // check that there are files
+        files = this.sffs.getFileList();
+        this.assertGreater(files.len(), 0);
+
+        // erase all files
+        this.sffs.eraseFiles();
+
+        // check that tere are no files
+        files = this.sffs.getFileList();
+        this.assertEqual(0, files.len());
+    }
+
+    /**
      * Erase flash
      */
     function tearDown() {
         this.sffs.eraseAll();
+        this.test1_FileListWhenEmpty();
         return "Flash erased";
     }
 }
