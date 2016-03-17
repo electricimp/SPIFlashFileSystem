@@ -30,7 +30,7 @@ class BasicTestCase extends ImpTestCase {
     }
 
     /**
-     * Test
+     * Test .fileList() with empty FAT
      */
     function test1_FileListEmpty() {
         // chekc that nothing is listed yet
@@ -39,6 +39,9 @@ class BasicTestCase extends ImpTestCase {
         this.assertEqual(0, files.len());
     }
 
+    /**
+     * Test .fileList() after cteating a file
+     */
     function test2_FileListNonEmpty() {
         // create empty file
         this.sffs.open("file1.txt", "w").close();
