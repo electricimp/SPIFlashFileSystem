@@ -204,8 +204,7 @@ Returns `true` or `false` according to whether or not the specified file exists.
 ```squirrel
 if (!(sffs.fileExists("firstRun.txt")) {
     // Create the firstRun file
-    sffs.open("firstRun.txt", "w");
-    sffs.close();
+    sffs.open("firstRun.txt", "w").close();
     server.log("This is the first time running this code. \"firstRun.txt\" created.");
 } else {
     server.log("Found \"firstRun.txt\"");
