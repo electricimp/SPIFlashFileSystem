@@ -190,6 +190,17 @@ class BasicTestCase extends ImpTestCase {
             this.sffs.dimensions()
         );
     }
+
+    /**
+     * Test .created()
+     */
+    function test10_Created() {
+        // test that created date on newly created file == time()
+        this.sffs.open("file4.txt", "w").close();
+        this.assertClose(this.sffs.created("file4.txt"), time(), 1);
+    }
+
+    /**
      * Erase flash
      */
     function tearDown() {
