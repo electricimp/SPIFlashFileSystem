@@ -22,6 +22,8 @@
     - [eraseFile(*filename*)](#erasefilefilename)
     - [setAutoGc(*numPages*)](#setautogcnumpages)
     - [gc(*[numPages]*)](#gcnumpages)
+    - [created(*fileRef*)](#createdfileref)
+    - [dimensions()](#dimensions)
   - [SPIFlashFileSystem.File](#spiflashfilesystemfile)
   - [SPIFlashFileSystem.File Methods](#spiflashfilesystemfile-methods)
     - [seek(*position*)](#seekposition)
@@ -32,7 +34,7 @@
     - [write(*data*)](#writedata)
     - [close()](#close)
   - [Testing](#testing)
-    - [Hardware Required](#hardware-required)
+    - [Hardware](#hardware)
   - [To Do](#to-do)
   - [Development](#development)
   - [License](#license)
@@ -295,6 +297,36 @@ The *gc()* method manually starts the garbage collection process. The SPIFlashFi
 
 If the *numPages* parameter is specified, the garbage collector will free up to *numPages* pages and return when it completes (this is what happens when the garbage collector runs because the file system needs a page and none are free). If the *numPages* parameter is ommited, the garbage collector will run asynchronously in the background (this is what happens when the garbage collector runs because free pages drops below the value of *autoGcThreshold*).
 
+### created(*fileRef*)
+
+Gets the creation timestamp for a specified file reference (id or name).
+
+```squirrel
+// get creation date by name
+sffs.created("file.txt");
+
+// get creation date by id
+sffs.created(5);
+```
+
+### dimensions()
+
+Returns a table with the dimensions of the File System:
+
+```squirrel
+{
+    "start": /* First byte of SPIFlash allocated to file system */,
+    "size": /* The size of the SPI Flash */,
+    "end": /* Last byte of SPIFlash allocated to file system */,
+    "len": /* Size of File System */,
+    "pages": /* Number of pages available in the File system*/
+}
+```
+
+```squirrel
+local d = sffs.dimensions();
+```
+
 ## SPIFlashFileSystem.File
 
 A *SPIFlashFileSystem.File* object is returned from the SPIFlashFileSystem each time a file is opened. The *SPIFlashFileSystem.File* object acts as a stream, with an internal pointer which can be manipulated with a variety of methods in the *SPIFlashFileSystem.File* class.
@@ -396,7 +428,7 @@ To run test with your settings (for example while you are developing), create yo
  imptest test -c .imptest.local
  ```
 
-### Hardware Required
+### Hardware
 
 Tests require an [Amy](https://electricimp.com/docs/hardware/resources/reference-designs/amy/) board or [imp003 Evaluation Board](https://electricimp.com/docs/hardware/imp003evb/). Any other boards with imp003 and above containing SPI flash with available user space may work too.
 
