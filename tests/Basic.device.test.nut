@@ -80,12 +80,30 @@ class BasicTestCase extends ImpTestCase {
         }, this);
 
         // create file
-        local f = this.sffs.open("file2.txt", "w")
+        local f = this.sffs.open("file2.txt", "w");
         f.write(blob(100))
         f.close();
 
         // check existing file size
         this.assertEqual(100, this.sffs.fileSize("file2.txt"));
+    }
+
+    /**
+     * Test .isFileOpen()
+     */
+    function test5_isFileOpen() {
+        // existing closed file
+        this.assertEqual(false, this.sffs.isFileOpen("file1.txt"));
+
+        // non-existing file
+        this.assertThrowsError(function () {
+            local s = this.sffs.isFileOpen("nonexisting-file.txt");
+        }, this);
+
+        // open file
+        local f = this.sffs.open("file2.txt", "r");
+        this.assertEqual(true, this.sffs.isFileOpen("file2.txt"));
+        f.close();
     }
 
     /**
