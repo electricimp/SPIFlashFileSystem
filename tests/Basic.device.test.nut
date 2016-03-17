@@ -66,9 +66,38 @@ class BasicTestCase extends ImpTestCase {
     }
 
     /**
+     * Test ordering of files in .fileList()
+     */
+    function test03_FileListOrdering() {
+        return Promise(function(ok, err) {
+            imp.wakeup(2, function() {
+                try {
+                    // creat file a with later date, but alphabetically
+                    // preceedeing already existing file1.txt
+                    this.sffs.open("file0.txt", "w").close();
+
+                    local files;
+
+                    // list filres with ordering by name, adc
+                    files = this.sffs.getFileList(/* orderByDate=false */);
+                    this.assertEqual("file0.txt", files[0].fname, "getFileList(false) is expected to sort files by name");
+
+                    // list files ordering by date, asc
+                    files = this.sffs.getFileList(true /* orderByDate=true */);
+                    this.assertEqual("file1.txt", files[0].fname, "getFileList(true) is expected to sort files by creation date");
+                    ok();
+
+                } catch (e) {
+                    err(e);
+                }
+            }.bindenv(this));
+        }.bindenv(this));
+    }
+
+    /**
      * Test .fileExists()
      */
-    function test03_fileExists() {
+    function test04_fileExists() {
         this.assertEqual(true, this.sffs.fileExists("file1.txt"));
         this.assertEqual(false, this.sffs.fileExists("nonexisting-file.txt"));
         this.assertEqual(false, this.sffs.fileExists(""));
@@ -78,7 +107,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .fileSize()
      */
-    function test04_fileSize() {
+    function test05_fileSize() {
         // empty file
         this.assertEqual(0, this.sffs.fileSize("file1.txt"));
 
@@ -99,7 +128,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .isFileOpen()
      */
-    function test05_isFileOpen() {
+    function test06_isFileOpen() {
         // existing closed file
         this.assertEqual(false, this.sffs.isFileOpen("file1.txt"));
 
@@ -117,7 +146,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .open()
      */
-    function test06_Open() {
+    function test07_Open() {
         local f;
 
         // existing file for reading
@@ -145,7 +174,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .eraseFile()
      */
-    function test07_EraseFile() {
+    function test08_EraseFile() {
         // existing file
         this.sffs.eraseFile("file1.txt");
         this.assertEqual(false, this.sffs.fileExists("file1.txt"));
@@ -165,7 +194,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .eraseFiles()
      */
-    function test08_EraseFiles() {
+    function test09_EraseFiles() {
         local files;
 
         // check that there are files
@@ -183,7 +212,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .dimensions()
      */
-    function test09_Dimensions() {
+    function test10_Dimensions() {
         this.assertDeepEqual(
             {
                 "start": 0,
@@ -199,7 +228,7 @@ class BasicTestCase extends ImpTestCase {
     /**
      * Test .created()
      */
-    function test10_Created() {
+    function test11_Created() {
         // test that created date on newly created file == time()
         this.sffs.open("file4.txt", "w").close();
         this.assertClose(time(), this.sffs.created("file4.txt"), 1);
