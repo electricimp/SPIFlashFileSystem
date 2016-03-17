@@ -1,0 +1,3 @@
+
+class TestCase extends ImpTestCase {
+}

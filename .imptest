@@ -1,0 +1,14 @@
+{
+    "modelId": "u68eyYY-B9ON" /* Amy.K */,
+    "devices": [
+        "30000c2a690bdc21" /* EI.Test.K @ SPIFlashFileSystem lib */
+    ],
+    "agentFile": false,
+    "deviceFile": "SPIFlashFileSystem.class.nut",
+    "stopOnFailure": false,
+    "timeout": 10,
+    "tests": [
+        "*.test.nut",
+        "tests/**/*.test.nut"
+    ]
+}
