@@ -47,7 +47,7 @@
 
 # SPIFlashFileSystem 1.2.0
 
-The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices (using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003+, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002).
+The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices, using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003 and above, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002.
 
 **To add this library to your project, add `#require "SPIFlashFileSystem.class.nut:1.2.0"` to the top of your device code.**
 
@@ -135,7 +135,7 @@ The SPIFlashFileSystem consists of three classes:
 
 - [SPIFlashFileSystem](#spiflashfilesystem) &mdash; The main programming interface for the filesystem
 - [SPIFlashFileSystem.File](#spiflashfilesystemfile) &mdash; An object representing an open file that you can use to read, write, etc
-- SPIFlashFileSystem.FAT &mdash; The File Allocation Table (not used by application developer)
+- [SPIFlashFileSystem.FAT](#spiflashfilesystemfat) &mdash; The File Allocation Table (not used by application developer)
 
 ## SPIFlashFileSystem
 
@@ -175,8 +175,6 @@ sffs.init();
 The *init()* method initializes the FAT, and must be called before invoking other SPIFlashFileSystem methods. The *init()* method takes an optional callback method with one parameter, an array: a directory of files currently stored within the SPI flash.
 
 ```squirrel
-#require "SPIFlashFileSystem.class.nut:1.2.0"
-
 // Allocate the first 2 MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
 sffs.init(function(files) {
@@ -192,9 +190,9 @@ sffs.init(function(files) {
 
 If the *init()* method is called while the filesystem has files open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
 
-### getFileList()
+### getFileList(*[orderByDate]*)
 
-The *getFileList()* returns an array of file information identical to that passed into the *init()* callback:
+The *getFileList()* returns an array of file information identical to that passed into the *init()* callback. It takes an optional parameter: orderByData, a Boolean value that specifies whether the returned files should be sorted into date order for you. The default value is `false`.
 
 ```squirrel
 local files = sffs.getFileList();
@@ -229,6 +227,44 @@ The *fileSize()* method returns the size of a file’s data, and does **not** in
 local filename = "HelloWorld.txt";
 server.log(filename + " is " + sffs.fileSize(filename) + " bytes long");
 ```
+
+### dimensions()
+
+This method returns information about the filesystem in the form of a table with the following keys:
+
+| Key        | Description |
+| ----------- | --------------- |
+| *size*     | The filesystem size in bytes |
+| *len*      | The number of files in the filesystem |
+| *start*    | The address of the first byte of SPI flash assigned to the filesystem |
+| *end*     | The address of the last byte of SPI flash assigned to the filesystem |
+| *pages* | The number of pages available in the filesystem |
+
+```squirrel
+local d = sffs.dimensions();
+```
+
+### created(*fileRef*)
+
+Gets the creation timestamp for a specified file reference (id or file name).
+
+```squirrel
+// get creation date by file name
+sffs.created("file.txt");
+
+// get creation date by id
+sffs.created(5);
+```
+
+### getFreeSpace()
+
+This method returns an estimate of the free space available in the filesystem. Smaller files have more overhead than larger files so it is impossible to know exactly how much space is free. The information is returned as a table with two keys:
+
+| Key           | Description |
+| ------------- | --------------- |
+| *free*        | The estimated free space in bytes |
+| *freeable* | The estimated space in bytes that may be freed through further garbage collection |
+
 
 ### isFileOpen(*filename*)
 
@@ -279,9 +315,13 @@ sffs.eraseFile("testdata.txt");
 
 If the *eraseFile* method is called while the specified file is open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
 
+### eraseFiles()
+
+This method erases all files within the filesystem. It will return with an error if it is called when there are open files.
+
 ### setAutoGc(*numPages*)
 
-The *setAutoGc()* method sets the *autoGcThresgold* property The default settings is 4. The garbage collector will automatically run when the filesystem has fewer than *autoGcThreshold* pages.
+The *setAutoGc()* method sets the *autoGcThresgold* property.  The default *autoGcThresgold* property is 4. The garbage collector will automatically run when the filesystem has fewer than *autoGcThreshold* pages.
 
 Setting *numPages* to 0 will turn off automatic garbage collection.
 
@@ -297,39 +337,14 @@ The *gc()* method manually starts the garbage collection process. The SPIFlashFi
 
 If the *numPages* parameter is specified, the garbage collector will free up to *numPages* pages and return when it completes (this is what happens when the garbage collector runs because the file system needs a page and none are free). If the *numPages* parameter is ommited, the garbage collector will run asynchronously in the background (this is what happens when the garbage collector runs because free pages drops below the value of *autoGcThreshold*).
 
-### created(*fileRef*)
-
-Gets the creation timestamp for a specified file reference (id or name).
-
-```squirrel
-// get creation date by name
-sffs.created("file.txt");
-
-// get creation date by id
-sffs.created(5);
-```
-
-### dimensions()
-
-Returns a table with the dimensions of the File System:
-
-```squirrel
-{
-    "start": /* First byte of SPIFlash allocated to file system */,
-    "size": /* The size of the SPI Flash */,
-    "end": /* Last byte of SPIFlash allocated to file system */,
-    "len": /* Size of File System */,
-    "pages": /* Number of pages available in the File system*/
-}
-```
-
-```squirrel
-local d = sffs.dimensions();
-```
 
 ## SPIFlashFileSystem.File
 
-A *SPIFlashFileSystem.File* object is returned from the SPIFlashFileSystem each time a file is opened. The *SPIFlashFileSystem.File* object acts as a stream, with an internal pointer which can be manipulated with a variety of methods in the *SPIFlashFileSystem.File* class.
+A *SPIFlashFileSystem.File* object is returned from the SPIFlashFileSystem each time a file is opened. The *SPIFlashFileSystem.File* object acts as a stream, with an internal pointer which can be manipulated with a variety of methods in the *SPIFlashFileSystem.File* class.  Typically, you will not need to instantiate SPIFlashFileSystem.File objects yourself.
+
+## Constructor:  SPIFlashFileSystem.File(*filesystem, fileId, fileIndex, filename, mode*)
+
+The constructor creates a file record. It takes the current SPIFlashFileSystem instance, the file’s unique integer ID, the index of the file in the internal record of open files, the current file’s filename, and its access mode: read or write, represented as the strings `"r"` and `"w"`, respectively.
 
 ## SPIFlashFileSystem.File Methods
 
@@ -388,7 +403,7 @@ server.log(file.read().tostring());
 
 Writes a string or blob to the end of a file's data opened with mode `"w"`. If you attempt to write to a file opened with mode `"r"` a `SPIFlashFileSystem.ERR_WRITE_R_FILE` error will be thrown.
 
-**Note** The page header is not written to the SPI Flash until the entire page is written, or the [close](#close) method is called.
+**Note:** The page header is not written to the SPI Flash until the entire page is written, or the [close](#close) method is called.
 
 In the following example, we download a file in chunks from the agent:
 
@@ -403,11 +418,98 @@ file.write("World!");
 file.close();
 ```
 
+### created()
+
+The *created()* method returns the file’s creation timestamp.
+
 ### close()
 
 The *close()* method closes a file, and writes data to the SPI Flash if required. All files that are opened should be closed, regardless of what mode they were opened in.
 
 *See [write()](#writedata) for sample usage.*
+
+
+## SPIFlashFileSystem.FAT
+
+A SPIFlashFileSystem.FAT object is automatically generated when the filesystem is initialized. It records the file allocation table (FAT).
+
+### Constructor: SPIFlashFileSystem.FAT(*filesystem[, pages]*)
+
+The constructor takes a master *SPIFlashFileSystem* object and, optionally, the number of 4KB pages it contains. If no value is passed into the pages parameter, the constructor will scan the filesystem for files and build an FAT from them.
+
+## SPIFlashFileSystem.FAT Methods
+
+### scan()
+
+This method scans the filesystem for files and uses them to construct the file allocation table.
+
+### get(*fileReference*)
+
+This method retrieves information about a specific file from the file allocation table. The value passed into *fileReference* can be either a file’s name (a string) or its ID (an integer). The method returns a table of information containing the following keys:
+
+| Key | Description |
+| ----- | --------------- |
+| *id* | The file’s ID (integer) |
+| *fname* | The file’s filename |
+| *spans* | ??? |
+| *pages* | An array of pages in which the file is stored |
+| *pageCount* | The number of pages in which the file is stored |
+| *sizes* | An array of the size (in bytes) of the file chunks each page contains |
+| *sizeTotal* | The total size of the file |
+| *created* | A timestamp indicating the date and time of the file’s creation |
+
+### getFileList(*[orderByDate]*)
+
+The *getFileList()* returns an array of file information, one entry per file in the FAT. It takes an optional parameter: *orderByData*, a Boolean value that specifies whether the returned files should be sorted into date order for you. The default value is `false`. The information for each file is a table with the following keys:
+
+| Key | Description |
+| ----- | --------------- |
+| *id* | The file’s ID (integer) |
+| *fname* | The file’s filename |
+| *size* |  The total size of the file |
+| *created* | A timestamp indicating the date and time of the file’s creation |
+
+### getFileId(*filename*)
+This method takes a given file’s name and returns the unique integer by which it is referenced in the file allocation table.
+
+### fileExists(*fileReference*)
+This method returns `true` or `false` according to whether or not the specified file exists in the file allocation table. The value passed into fileReference can be either a file’s name (a string) or its ID (an integer).
+
+### getFreePage()
+This method returns the address of a random free page in the filesystem. It will return an error, *SPIFlashFileSystem.ERR_NO_FREE_SPACE*, if it is unable to do so because there is no free space left.
+
+### markPage(*address, status*)
+This method sets the status of the page at address. Status values can be any of the constants: *SPIFLASHFILESYSTEM_STATUS_FREE, SPIFLASHFILESYSTEM_STATUS_USED*, *SPIFLASHFILESYSTEM_STATUS_ERASED or SPIFLASHFILESYSTEM_STATUS_BAD*.
+
+### addPage(*fileId, page*)
+This method adds the specified page to the file allocation table for the specified file.
+
+### getPageCount(*fileReference*)
+This method returns the number of pages the files specified by the parameter fileReference comprises. The value passed into fileReference can be either a file’s name (a string) or its ID (an integer).
+
+### forEachPage(*fileReference, callback*)
+This method iterates over each page used to record the file specified by the parameter fileReference. For each page, the function passed into the parameter callback is called. This function takes a single parameter: the page it is passed.
+
+### pagesOrderedBySpan(*pages*)
+This method returns an array of pages ordered by the span.
+
+### addSizeToLastSpan(*fileId, bytes*)
+This method updates the size of the last span in a file.
+
+### set(*fileId, file*)
+This method sets the span for the file specified by its ID.
+
+### removeFile(*filename*)
+This method removes the named file from the file allocation table.
+
+### getSectorMap()
+This method returns the file allocation table’s sector map.
+
+### getStats()
+This method returns a table of page usage information, specifically the number of pages in the filesystem in each of the four status categories. This information is returned as a table with the keys *free, used, erased and bad*. Each key’s value is an integer: the number of pages in the filesystem with that status.
+
+### describe()
+This method is intended to assist with debugging: it provides a readout of the current number of files in the file allocation table, and lists each file by name, the number of pages it spans and its total size.
 
 
 ## Testing
