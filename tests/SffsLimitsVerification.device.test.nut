@@ -94,8 +94,10 @@ class SffsLimitsVerification extends BaseSffsTestCase {
                     // list files with alphabetic ordering by name
                     files = sffs.getFileList( /* orderByDate=false */ );
 
-                    assertEqual("file1.txt", files[0].fname,
-                        "getFileList(false) is expected to sort files by name");
+                    if ("file1.txt" != files[0].fname) {
+                        err("getFileList(false) is expected to sort files by name");
+                        return;
+                    }
 
                     // list files ordering by date, asc
                     files = sffs.getFileList(true /* orderByDate=true */ );
@@ -103,8 +105,10 @@ class SffsLimitsVerification extends BaseSffsTestCase {
                     // Check that file list was sorted by "created"
                     local created = 0;
                     foreach(m in files) {
-                        assertTrue(created <= m.created,
-                            "getFileList(true) is expected to sort files by creation date");
+                        if (created > m.created) {
+                            err("getFileList(true) is expected to sort files by creation date");
+                            return;
+                        }
                         created = m.created;
                     }
                     ok();

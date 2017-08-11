@@ -44,7 +44,10 @@ class BaseSffsTestCase extends ImpTestCase {
         return Promise(function(ok, err) {
             // check that we're on    003+
 
-            assertTrue("spiflash" in hardware, "imp003 and above is expected");
+            if (!("spiflash" in hardware)) {
+                err("imp003 and above is expected");
+                return;
+            }
 
             // get actual flash size
             hardware.spiflash.enable();

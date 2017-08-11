@@ -78,13 +78,17 @@ class SFFSTestCase extends BaseSffsTestCase {
 
                     // list filres with ordering by name, adc
                     files = sffs.getFileList( /* orderByDate=false */ );
-                    assertEqual("file0.txt", files[0].fname,
-                                "getFileList(false) is expected to sort files by name");
+                    if ("file0.txt" != files[0].fname) {
+                        err("getFileList(false) is expected to sort files by name");
+                        return;
+                    }
 
                     // list files ordering by date, asc
                     files = sffs.getFileList(true /* orderByDate=true */ );
-                    assertEqual("file1.txt", files[0].fname,
-                                "getFileList(true) is expected to sort files by creation date");
+                    if ("file1.txt" != files[0].fname) {
+                        err("getFileList(true) is expected to sort files by creation date");
+                        return;
+                    }
                     ok();
 
                 } catch (e) {
