@@ -25,6 +25,7 @@ class SPIFlashFileSystem {
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
+    static ERR_FILE_CLOSED = "Can not perform operation with closed file."
     static ERR_FILE_NOT_FOUND = "The requested file does not exist."
     static ERR_FILE_EXISTS = "Cannot (w)rite to an existing file."
     static ERR_WRITE_R_FILE = "Cannot write to file with mode 'r'"
@@ -34,6 +35,7 @@ class SPIFlashFileSystem {
     static ERR_INVALID_WRITE_DATA = "Can only write blobs and strings to files."
     static ERR_NO_FREE_SPACE = "File system out of space."
     static ERR_INVALID_FILENAME = "Invalid filename";
+    static ERR_INVALID_PARAMETERS = "Invalid parameters.";
 
     // Private:
     _flash = null;          // The SPI Flash object
@@ -983,6 +985,7 @@ class SPIFlashFileSystem.File {
     _wpos = 0;
     _waddr = 0;
     _dirty = false;
+    _isClosed = false;
 
     constructor(filesystem, fileId, fileIdx, fname, mode) {
         _filesystem = filesystem;
@@ -995,11 +998,18 @@ class SPIFlashFileSystem.File {
 
     // Closes a file
     function close() {
+        // there is not way to close file twice
+        if (_isClosed) throw ERR_FILE_CLOSED;
+        _isClosed = true;
         return _filesystem._close(_fileId, _fileIdx, _dirty);
     }
 
     // Sets file pointer to the specified position
     function seek(pos) {
+        if (_isClosed)
+            throw ERR_FILE_CLOSED;
+        if (pos > _filesystem._fat.get(_fileId).sizeTotal)
+            throw ERR_INVALID_PARAMETERS;
         // Set the new pointer position
         _pos = pos;
         return this;
@@ -1007,26 +1017,31 @@ class SPIFlashFileSystem.File {
 
     // Returns file pointer's current location
     function tell() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _pos;
     }
 
     // Returns true when the file pointer is at the end of the file
     function eof() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _pos >= _filesystem._fat.get(_fileId).sizeTotal;
     }
 
     // Returns the size of the file
     function len() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _filesystem._fat.get(_fileId).sizeTotal;
     }
 
     // Returns the creation timestamp
     function created() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _filesystem._fat.get(_fileId).created;
     }
 
     // Reads data from the file
     function read(len = null) {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         local data = _filesystem._read(_fileId, _pos, len);
         _pos += data.len();
         // make data blob ready to read
@@ -1036,6 +1051,7 @@ class SPIFlashFileSystem.File {
 
     // Writes data to the file and updates the FAT
     function write(data) {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         if (_mode == "r") throw ERR_WRITE_R_FILE;
         local info = _filesystem._write(_fileId, _waddr, data);
 
