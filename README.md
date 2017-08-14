@@ -2,7 +2,7 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 
-- [SPIFlashFileSystem 1.2.0](#spiflashfilesystem-120)
+- [SPIFlashFileSystem](#spiflashfilesystem)
   - [Overview of the File System](#overview-of-the-file-system)
     - [Example File](#example-file)
   - [Garbage Collection](#garbage-collection)
@@ -69,7 +69,7 @@
 
 [![Build Status](https://travis-ci.org/electricimp/SPIFlashFileSystem.svg?branch=master)](https://travis-ci.org/electricimp/SPIFlashFileSystem)
 
-# SPIFlashFileSystem 1.2.0
+# SPIFlashFileSystem
 
 The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices, using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003 and above, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002.
 

@@ -1,5 +1,5 @@
 #require "bullwinkle.class.nut:2.0.1"
-#require "SPIFlashFileSystem.class.nut:1.2.0"
+#require "SPIFlashFileSystem.device.lib.nut:2.0.0"
 
 
 // Function to recursively get the next chunk of the URL until it is finished
@@ -36,7 +36,7 @@ function getNextChunk(file = null, offset = 0, length = 1000) {
                         // We have more or less than we asked for. Best to stop
                         done = true;
                     }
-                    
+
                 } else if (file) {
                     // We have finished or there is an error
                     done = true;
