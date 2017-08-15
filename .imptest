@@ -4,7 +4,7 @@
         "30000c2a690bdc21" /* EI.Test.K @ SPIFlashFileSystem lib */
     ],
     "agentFile": false,
-    "deviceFile": "SPIFlashFileSystem.class.nut",
+    "deviceFile": "SPIFlashFileSystem.device.lib.nut",
     "stopOnFailure": false,
     "timeout": 10,
     "tests": [
