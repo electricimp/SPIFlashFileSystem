@@ -42,9 +42,8 @@ function getNextChunk(file = null, offset = 0, length = 1000) {
     }
 
     // Send the request to the agent
-    mm.send("http.get", request).onReply(
-      // We received a response
-      function(msg, response) {
+    mm.send("http.get", request,
+      {"onReply": function(msg, response) {
           local done = false;
           if (response && response.len() > 0) {
               // We have a chunk of data
@@ -72,15 +71,12 @@ function getNextChunk(file = null, offset = 0, length = 1000) {
             file.close();
             file = null;
           }
+      }.bindenv(this),
+      "onFail" : function(err, message, retry) {
+          server.error("Failed get next chunk. Retrying.")
+          retry(10);
       }.bindenv(this)
-    );
-    mm.onFail(
-        // The request timed out or failed, just log and retry
-        function(err, message, retry) {
-            server.error("Failed get next chunk. Retrying.")
-            retry(10);
-        }.bindenv(this)
-    );  // mm.send.onReply.onFail
+    }); // mm.send
 }
 
 // Erase previously downloaded file
