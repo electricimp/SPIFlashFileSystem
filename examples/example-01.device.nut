@@ -43,40 +43,41 @@ function getNextChunk(file = null, offset = 0, length = 1000) {
 
     // Send the request to the agent
     mm.send("http.get", request,
-      {"onReply": function(msg, response) {
-          local done = false;
-          if (response && response.len() > 0) {
-              // We have a chunk of data
+        {
+            "onReply": function(msg, response) {
+                local done = false;
+                if (response && response.len() > 0) {
+                    // We have a chunk of data
 
-              // Append it to the file
-              if (!file) file = spiffs.open("electricimp.jpg", "w");
-                  file.write(response)
+                    // Append it to the file
+                    if (!file)
+                        file = spiffs.open("electricimp.jpg", "w");
+                    file.write(response)
 
-              if (response.len() == length) {
-                  // Request the next chunk
-                  getNextChunk(file, offset + length, length);
-              } else {
-                  // We have more or less than we asked for. Best to stop
-                  done = true;
-              }
+                    if (response.len() == length) {
+                        // Request the next chunk
+                        getNextChunk(file, offset + length, length);
+                    } else {
+                        // We have more or less than we asked for. Best to stop
+                        done = true;
+                    }
+                } else if (file) {
+                    // We have finished or there is an error
+                    done = true;
+                }
 
-          } else if (file) {
-              // We have finished or there is an error
-              done = true;
-          }
-
-          if (done) {
-            // Close the file
-            server.log("Received file of length: " + file.len())
-            file.close();
-            file = null;
-          }
-      }.bindenv(this),
-      "onFail" : function(err, message, retry) {
-          server.error("Failed get next chunk. Retrying.")
-          retry(10);
-      }.bindenv(this)
-    }); // mm.send
+                if (done) {
+                    // Close the file
+                    server.log("Received file of length: " + file.len())
+                    file.close();
+                }
+            }.bindenv(this),
+            "onFail" : function(err, message, retry) {
+                server.error("Failed get next chunk. Retrying.")
+                retry(10);
+            }.bindenv(this)
+        }
+    ); // mm.send
 }
 
 // Erase previously downloaded file
