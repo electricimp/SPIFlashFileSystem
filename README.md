@@ -317,7 +317,8 @@ If you attempt to open an existing file with *mode* = `"w"`, a `SPIFlashFileSyst
 
 If you attempt to open a file with a mode other than `"r"` or `"w"` a `SPIFlashFileSystem.ERR_UNKNOWN_MODE` error will be thrown.
 
-If you create an empty file then it will be stored in cache only and disappear on next reboot.
+If you create an empty file, it will be stored in cache only and will not be available after the next reboot.
+
 ```squirrel
 // create an empty file
 sffs.open("filename.txt", "w").close();
