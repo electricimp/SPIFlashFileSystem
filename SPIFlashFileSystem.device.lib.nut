@@ -1,6 +1,26 @@
-// Copyright (c) 2016 Electric Imp
-// This file is licensed under the MIT License
-// http://opensource.org/licenses/MIT
+// MIT License
+//
+// Copyright 2015-2017 Electric Imp
+//
+// SPDX-License-Identifier: MIT
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+// EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+// OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+// ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+// OTHER DEALINGS IN THE SOFTWARE.
 
 // File system information
 const SPIFLASHFILESYSTEM_SECTOR_SIZE = 4096;
@@ -21,10 +41,11 @@ const SPIFLASHFILESYSTEM_SPIFLASH_VERIFY = 1; // Don't verify = 0, Post Verify =
 
 class SPIFlashFileSystem {
     // Library version
-    static version = [1, 2, 0];
+    static VERSION = "2.0.0";
 
     // Errors
     static ERR_OPEN_FILE = "Cannot perform operation with file(s) open."
+    static ERR_FILE_CLOSED = "Can not perform operation with closed file."
     static ERR_FILE_NOT_FOUND = "The requested file does not exist."
     static ERR_FILE_EXISTS = "Cannot (w)rite to an existing file."
     static ERR_WRITE_R_FILE = "Cannot write to file with mode 'r'"
@@ -34,6 +55,7 @@ class SPIFlashFileSystem {
     static ERR_INVALID_WRITE_DATA = "Can only write blobs and strings to files."
     static ERR_NO_FREE_SPACE = "File system out of space."
     static ERR_INVALID_FILENAME = "Invalid filename";
+    static ERR_INVALID_PARAMETERS = "Invalid parameters.";
 
     // Private:
     _flash = null;          // The SPI Flash object
@@ -123,10 +145,11 @@ class SPIFlashFileSystem {
         if (!_fat.fileExists(fname)) throw ERR_FILE_NOT_FOUND;
         if (isFileOpen(fname)) throw ERR_OPEN_FILE;
 
-        _enable();
-
         // Build a blob to zero out the file
         local zeros = blob(SPIFLASHFILESYSTEM_HEADER_SIZE + SPIFLASHFILESYSTEM_TIMESTAMP_SIZE + SPIFLASHFILESYSTEM_MAX_FNAME_SIZE + 1);
+
+        _enable();
+
         local pages = _fat.forEachPage(fname, function(addr) {
             // Erase the page headers
             local res = _flash.write(addr, zeros, SPIFLASHFILESYSTEM_SPIFLASH_VERIFY);
@@ -149,21 +172,21 @@ class SPIFlashFileSystem {
 
     // Erases all files
     function eraseFiles() {
-        
+
         if (_openFiles.len() > 0) return server.error("Can't call eraseFiles() with open files");
 
         _enable();
-        
+
         local files_to_erase = _fat.getFileList();
         foreach (file in files_to_erase) {
             eraseFile(file.fname);
         }
 
         _disable();
-        
+
     }
-    
-    
+
+
     // Opens a file to (r)ead, (w)rite, or (a)ppend
     function open(fname, mode) {
     	// Validate filename
@@ -215,7 +238,7 @@ class SPIFlashFileSystem {
         return { "size": _size, "len": _len, "start": _start, "end": _end, "pages": _pages }
     }
 
-    // Returns the created time stamp 
+    // Returns the created time stamp
     function created(fileRef) {
         return _fat.get(fileRef).created;
     }
@@ -224,7 +247,7 @@ class SPIFlashFileSystem {
 
         // Smaller files have more overhead than larger files so its impossible to know exactly how much space is free.
         // This is a total guess of how much space an average sector would have for data.
-        local stats = _fat.getStats();        
+        local stats = _fat.getStats();
         const page_size_guess = 4000;
         local free = stats.free * page_size_guess;
         local freeable = (stats.free + stats.erased) * page_size_guess;
@@ -578,7 +601,8 @@ class SPIFlashFileSystem {
 
         // Correct the size
         local maxSize = SPIFLASHFILESYSTEM_PAGE_SIZE - headerBlob.tell();
-        if ((pageData.span != 0xFFFF) && (pageData.size == 0 || pageData.size > maxSize)) {
+        if ((pageData.span != 0xFFFF && pageData.id != 0)
+           && (pageData.size == 0 || pageData.size > maxSize)) {
             pageData.size = maxSize;
         }
         pageData.eof <- headerBlob.tell() + pageData.size;
@@ -792,7 +816,7 @@ class SPIFlashFileSystem.FAT {
             });
         }
 
-        // Order the files 
+        // Order the files
         if (orderByDate) {
             list.sort(function(a, b) { return a.created <=> b.created }.bindenv(this));
         } else {
@@ -981,6 +1005,7 @@ class SPIFlashFileSystem.File {
     _wpos = 0;
     _waddr = 0;
     _dirty = false;
+    _isClosed = false;
 
     constructor(filesystem, fileId, fileIdx, fname, mode) {
         _filesystem = filesystem;
@@ -993,11 +1018,18 @@ class SPIFlashFileSystem.File {
 
     // Closes a file
     function close() {
+        // there is not way to close file twice
+        if (_isClosed) throw ERR_FILE_CLOSED;
+        _isClosed = true;
         return _filesystem._close(_fileId, _fileIdx, _dirty);
     }
 
     // Sets file pointer to the specified position
     function seek(pos) {
+        if (_isClosed)
+            throw ERR_FILE_CLOSED;
+        if (pos > _filesystem._fat.get(_fileId).sizeTotal)
+            throw ERR_INVALID_PARAMETERS;
         // Set the new pointer position
         _pos = pos;
         return this;
@@ -1005,34 +1037,41 @@ class SPIFlashFileSystem.File {
 
     // Returns file pointer's current location
     function tell() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _pos;
     }
 
     // Returns true when the file pointer is at the end of the file
     function eof() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _pos >= _filesystem._fat.get(_fileId).sizeTotal;
     }
 
     // Returns the size of the file
     function len() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _filesystem._fat.get(_fileId).sizeTotal;
     }
 
     // Returns the creation timestamp
     function created() {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         return _filesystem._fat.get(_fileId).created;
     }
 
     // Reads data from the file
     function read(len = null) {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         local data = _filesystem._read(_fileId, _pos, len);
         _pos += data.len();
-
+        // make data blob ready to read
+        data.seek(0);
         return data;
     }
 
     // Writes data to the file and updates the FAT
     function write(data) {
+        if (_isClosed) throw ERR_FILE_CLOSED;
         if (_mode == "r") throw ERR_WRITE_R_FILE;
         local info = _filesystem._write(_fileId, _waddr, data);
 
