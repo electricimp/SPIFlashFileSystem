@@ -71,7 +71,7 @@
 
 # SPIFlashFileSystem
 
-The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices, using either the built-in [hardware.spiflash](https://electricimp.com/docs/api/hardware/spiflash) object on imp003 and above, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002.
+The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices, using either the built-in [hardware.spiflash](https://developer.electricimp.com/api/hardware/spiflash) object on imp003 and above, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002.
 
 **To add this library to your project, add** `#require "SPIFlashFileSystem.device.lib.nut:2.0.0"` **to the top of your device code.**
 
@@ -165,7 +165,7 @@ The SPIFlashFileSystem consists of three classes:
 
 ### Constructor: SPIFlashFileSystem(*[start, end, spiflash]*)
 
-The SPIFlashFileSystem constructor allows you to specify the start and end bytes of the file system in the SPIFlash, as well as an optional SPIFlash object (if you are not using the built in [**hardware.spiflash**](https://electricimp.com/docs/api/hardware/spiflash) object).
+The SPIFlashFileSystem constructor allows you to specify the start and end bytes of the file system in the SPIFlash, as well as an optional SPIFlash object (if you are not using the built in [**hardware.spiflash**](https://developer.electricimp.com/api/hardware/spiflash) object).
 
 The start and end values **must** be on block boundaries (0x010000, 0x020000, etc.), otherwise a `SPIFlashFileSystem.ERR_INVALID_SPIFLASH_ADDRESS` error will be thrown.
 
@@ -571,13 +571,13 @@ By default, the configuration for the testing is read from the file [*.imptest*]
 
 ### Hardware
 
-The provided tests require an [imp003 Breakout Board](https://electricimp.com/docs/hardware/resources/reference-designs/imp003breakout/) or [imp003 Evaluation Board](https://electricimp.com/docs/hardware/imp003evb/). Any other boards with imp003 and above containing SPI flash with available user space may work too.
+The provided tests require an [imp003 Breakout Board](https://developer.electricimp.com/hardware/resources/reference-designs/imp003breakout/) or [imp003 Evaluation Board](https://developer.electricimp.com/hardware/imp003evb/). Any other boards with imp003 and above containing SPI flash with available user space may work too.
 
 imp001 support is planned.
 
 ## To Do
 
-- Add *start* and *end* parameters to *seek()* as per the [Squirrel Blob obect](https://electricimp.com/docs/squirrel/blob/seek/)
+- Add *start* and *end* parameters to *seek()* as per the [Squirrel Blob obect](https://developer.electricimp.com/squirrel/blob/seek/)
 - Add an append mode (`"a"`) to *open()*
 - Add an optional asynchronous version of *_scan()* which throws a ‘ready’ event when fully loaded
 - Add an optional *SFFS_PAGE_SIZE* (4KB or multiples of 4KB) to reduce overhead
