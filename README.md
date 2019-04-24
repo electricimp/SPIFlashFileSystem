@@ -6,6 +6,8 @@ The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https:/
 
 ![Build Status](https://cse-ci.electricimp.com/app/rest/builds/buildType:(id:SPIFlashFileSystem_BuildAndTest)/statusIcon)
 
+-----
+
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
@@ -71,8 +73,6 @@ The SPIFlashFileSystem (SFFS) library implements a basic [wear leveling](https:/
 - [License](#license)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
-<br />
 
 ## Overview of the File System
 
