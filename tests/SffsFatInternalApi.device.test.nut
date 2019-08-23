@@ -208,10 +208,10 @@ class SffsFatInternalApi extends BaseSffsTestCase {
         return Promise(function(ok, err) {
             imp.wakeup(2, function() {
                 try {
-                    local flags = [SPIFLASHFILESYSTEM_STATUS_FREE,
-                        SPIFLASHFILESYSTEM_STATUS_ERASED,
-                        SPIFLASHFILESYSTEM_STATUS_USED,
-                        SPIFLASHFILESYSTEM_STATUS_BAD
+                    local flags = [SPIFLASHFILESYSTEM_STATUS.FREE,
+                        SPIFLASHFILESYSTEM_STATUS.ERASED,
+                        SPIFLASHFILESYSTEM_STATUS.USED,
+                        SPIFLASHFILESYSTEM_STATUS.BAD
                     ];
                     for (local i = 0; i < flags.len(); ++i) {
                         for (local j = 0; j < flags.len(); ++j) {
@@ -253,7 +253,7 @@ class SffsFatInternalApi extends BaseSffsTestCase {
             // addPage doesn't mark page ad used
             // therefore we can get the same free page again and again
             // to prevent it let's mark it as used
-            sffs._fat.markPage(page, SPIFLASHFILESYSTEM_STATUS_USED);
+            sffs._fat.markPage(page, SPIFLASHFILESYSTEM_STATUS.USED);
             assertEqual(sffs._fat.getPageCount(filename), i);
             sffs._fat.addSizeToLastSpan(filename, 123);
         }
@@ -324,7 +324,7 @@ class SffsFatInternalApi extends BaseSffsTestCase {
 
         // Scan the headers of each page, working out what is in each
         for (local p = 0; p < pages; p++) {
-            local page = dim.start + (p * SPIFLASHFILESYSTEM_PAGE_SIZE);
+            local page = dim.start + (p * SPIFLASHFILESYSTEM_SIZE.PAGE);
             local pageData = sffs._readPage(page, false);
             info("ID: " + pageData.id + " SPAN: " + pageData.span +
                 " SIZE: " + pageData.size + " NAME: " + pageData.fname);

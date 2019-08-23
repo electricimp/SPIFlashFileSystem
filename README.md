@@ -166,7 +166,7 @@ The SPIFlashFileSystem consists of three classes:
 
 The SPIFlashFileSystem constructor allows you to specify the start and end bytes of the file system in the SPIFlash, as well as an optional SPIFlash object (if you are not using the built in [**hardware.spiflash**](https://developer.electricimp.com/api/hardware/spiflash) object).
 
-The start and end values **must** be on block boundaries (0x010000, 0x020000, etc.), otherwise a `SPIFlashFileSystem.ERR_INVALID_SPIFLASH_ADDRESS` error will be thrown.
+The start and end values **must** be on block boundaries (0x010000, 0x020000, etc.), otherwise a `SPIFLASHFILESYSTEM_ERROR.INVALID_SPIFLASH_ADDRESS` error will be thrown.
 
 #### imp003 and above
 ```squirrel
@@ -211,7 +211,7 @@ sffs.init(function(files) {
 });
 ```
 
-If the *init()* method is called while the filesystem has files open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
+If the *init()* method is called while the filesystem has files open, a `SPIFLASHFILESYSTEM_ERROR.FILE_OPEN` error will be thrown.
 
 ### getFileList(*[orderByDate]*)
 
@@ -258,7 +258,7 @@ This method returns information about the filesystem in the form of a table with
 | Key | Description |
 | --- | --- |
 | *size* | The filesystem size in bytes |
-| *len* | The number of files in the filesystem |
+| *len* | The size of the filesystem |
 | *start* | The address of the first byte of SPI flash assigned to the filesystem |
 | *end* | The address of the last byte of SPI flash assigned to the filesystem |
 | *pages* | The number of pages available in the filesystem |
@@ -309,11 +309,11 @@ server.log(data);
 file.close();
 ```
 
-If you attempt to open a non-existant file with *mode* = `"r"`, a `SPIFlashFileSystem.ERR_FILE_NOT_FOUND` error will be thrown.
+If you attempt to open a non-existant file with *mode* = `"r"`, a `SPIFLASHFILESYSTEM_ERROR.FILE_NOT_FOUND` error will be thrown.
 
-If you attempt to open an existing file with *mode* = `"w"`, a `SPIFlashFileSystem.ERR_FILE_EXISTS` error will be thrown.
+If you attempt to open an existing file with *mode* = `"w"`, a `SPIFLASHFILESYSTEM_ERROR.FILE_EXISTS` error will be thrown.
 
-If you attempt to open a file with a mode other than `"r"` or `"w"` a `SPIFlashFileSystem.ERR_UNKNOWN_MODE` error will be thrown.
+If you attempt to open a file with a mode other than `"r"` or `"w"` a `SPIFLASHFILESYSTEM_ERROR.UNKNOWN_MODE` error will be thrown.
 
 If you create an empty file, it will be stored in cache only and will not be available after the next reboot.
 
@@ -331,7 +331,7 @@ The *eraseAll()* method erases the portion of the SPI Flash allocated to the fil
 sffs.eraseAll();
 ```
 
-If the *eraseAll* method is called while the filesystem has files open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
+If the *eraseAll* method is called while the filesystem has files open, a `SPIFLASHFILESYSTEM_ERROR.FILE_OPEN` error will be thrown.
 
 ### eraseFile(*filename*)
 
@@ -342,7 +342,7 @@ The *eraseFile()* method marks a single file as erased. The file’s data will n
 sffs.eraseFile("testdata.txt");
 ```
 
-If the *eraseFile* method is called while the specified file is open, a `SPIFlashFileSystem.ERR_OPEN_FILE` error will be thrown.
+If the *eraseFile* method is called while the specified file is open, a `SPIFLASHFILESYSTEM_ERROR.FILE_OPEN` error will be thrown.
 
 ### eraseFiles()
 
@@ -429,7 +429,7 @@ server.log(file.read().tostring());
 
 ### write(*data*)
 
-Writes a string or blob to the end of a file's data opened with mode `"w"`. If you attempt to write to a file opened with mode `"r"` a `SPIFlashFileSystem.ERR_WRITE_R_FILE` error will be thrown.
+Writes a string or blob to the end of a file's data opened with mode `"w"`. If you attempt to write to a file opened with mode `"r"` a `SPIFLASHFILESYSTEM_ERROR.FILE_WRITE_R` error will be thrown.
 
 **Note** The page header is not written to the SPI Flash until the entire page is written, or the [close](#close) method is called.
 
@@ -506,11 +506,11 @@ This method returns `true` or `false` according to whether or not the specified 
 
 ### getFreePage()
 
-This method returns the address of a random free page in the filesystem. It will return an error, `SPIFlashFileSystem.ERR_NO_FREE_SPACE`, if it is unable to do so because there is no free space left.
+This method returns the address of a random free page in the filesystem. It will return an error, `SPIFLASHFILESYSTEM_ERROR.NO_FREE_SPACE`, if it is unable to do so because there is no free space left.
 
 ### markPage(*address, status*)
 
-This method sets the status of the page at address. Status values can be any of the constants: *SPIFLASHFILESYSTEM_STATUS_FREE*, *SPIFLASHFILESYSTEM_STATUS_USED*, *SPIFLASHFILESYSTEM_STATUS_ERASED* or *SPIFLASHFILESYSTEM_STATUS_BAD*.
+This method sets the status of the page at address. Status values can be any of the constants: *SPIFLASHFILESYSTEM_STATUS.FREE*, *SPIFLASHFILESYSTEM_STATUS.USED*, *SPIFLASHFILESYSTEM_STATUS.ERASED* or *SPIFLASHFILESYSTEM_STATUS.BAD*.
 
 ### addPage(*fileId, page*)
 
@@ -554,19 +554,11 @@ This method is intended to assist with debugging: it provides a readout of the c
 
 ## Testing
 
-The repository contains [impUnit](https://github.com/electricimp/impUnit) tests and a configuration for [impTest](https://github.com/electricimp/impTest).
-
-The tests can be launched with:
+Tests can be run with imp-central-imp command line tool. Update the *deviceGroupId* in the test configuration file (.impt.test) with an id for a device group in your account. Log in to your account, and run the following command to run tests: 
 
 ```bash
-imptest test
+impt test run
 ```
-
-By default, the configuration for the testing is read from the file [*.imptest*](https://github.com/electricimp/impTest/blob/develop/docs/imptest-spec.md). To run tests with your settings (for example while you are developing), create a copy of the *.imptest* file and rename it (for example, *.imptest.local*), then run the tests with:
-
- ```bash
- imptest test -c .imptest.local
- ```
 
 ### Hardware
 

@@ -222,7 +222,7 @@ class SFFSTestCase extends BaseSffsTestCase {
                 "size": size,
                 "end": size,
                 "len": size,
-                "pages": size / SPIFLASHFILESYSTEM_PAGE_SIZE
+                "pages": size / SPIFLASHFILESYSTEM_SIZE.PAGE
             },
             sffs.dimensions()
         );
@@ -243,9 +243,9 @@ class SFFSTestCase extends BaseSffsTestCase {
     function _openTest(filename) {
         try {
             sffs.open(filename, "w");
-            assertTrue(false, "An ERR_INVALID_FILE ex")
+            assertTrue(false, "An SPIFLASHFILESYSTEM_ERROR.INVALID_FILENAME ex")
         } catch (e) {
-            assertEqual("Invalid filename", e);
+            assertEqual(SPIFLASHFILESYSTEM_ERROR.INVALID_FILENAME, e);
         }
     }
 
