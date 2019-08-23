@@ -25,7 +25,7 @@
 // while class being tested can be accessed from global scope as "::Promise".
 
 #require "MessageManager.lib.nut:2.0.0"
-#require "SPIFlashFileSystem.class.nut:2.0.0"
+#require "SPIFlashFileSystem.class.nut:3.0.0"
 
 // Initialize using default settings
 local mm = MessageManager();

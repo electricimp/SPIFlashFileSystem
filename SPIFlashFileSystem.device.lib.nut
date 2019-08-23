@@ -56,7 +56,7 @@ enum SPIFLASHFILESYSTEM_ERROR {
 
 class SPIFlashFileSystem {
     // Library version
-    static VERSION = "2.0.0";
+    static VERSION = "3.0.0";
 
     // Private:
     _flash = null;          // The SPI Flash object
@@ -628,7 +628,7 @@ class SPIFlashFileSystem {
 
         return pageData;
     }
-    
+
 }
 
 class SPIFlashFileSystem.FAT {
