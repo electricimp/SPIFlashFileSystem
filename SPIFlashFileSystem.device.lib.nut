@@ -33,9 +33,9 @@ enum SPIFLASHFILESYSTEM_SIZE {
 }
 
 enum SPIFLASHFILESYSTEM_STATUS {
-    FREE, 
-    USED, 
-    ERASED, 
+    FREE,
+    USED,
+    ERASED,
     BAD
 }
 
