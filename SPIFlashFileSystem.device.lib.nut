@@ -51,7 +51,8 @@ enum SPIFLASHFILESYSTEM_ERROR {
     INVALID_WRITE_DATA       = "Can only write blobs and strings to files.",
     NO_FREE_SPACE            = "File system out of space.",
     INVALID_FILENAME         = "Invalid filename.",
-    INVALID_PARAMETERS       = "Invalid parameters."
+    INVALID_PARAMETERS       = "Invalid parameters.", 
+    ERASE_OPEN_FILE          = "Can't call eraseFiles() with open files"
 }
 
 class SPIFlashFileSystem {
@@ -172,7 +173,7 @@ class SPIFlashFileSystem {
     // Erases all files
     function eraseFiles() {
 
-        if (_openFiles.len() > 0) return server.error("Can't call eraseFiles() with open files");
+        if (_openFiles.len() > 0) throw SPIFLASHFILESYSTEM_ERROR.ERASE_OPEN_FILE;
 
         _flash.enable();
 
