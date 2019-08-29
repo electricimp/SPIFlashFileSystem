@@ -396,7 +396,7 @@ sffs.eraseFile("testdata.txt");
 
 ### eraseFiles() ###
 
-This method erases all of the files within the file system. It will return with an error if it is called when there are open files.
+This method erases all of the files within the file system. It will return with an error if it is called when there are open files. The files are marked as erasable: their data will not be erased until the [garbage collector](#garbage-collection) is run.
 
 #### Return Value ####
 
@@ -404,7 +404,7 @@ String &mdash; An error message, otherwise `null`.
 
 ### eraseAll() ###
 
-This method erases the portion of the SPI Flash allocated to the file system.
+This method erases the portion of the SPI Flash allocated to the file system. Unlike [*eraseFiles()*](#erasefiles), *eraseAll()* will actually trigger an impOS spiflash erasesector operation.
 
 If the method is called while the file system has files open, a `SPIFLASHFILESYSTEM_ERROR.FILE_OPEN` error will be thrown.
 
