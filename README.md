@@ -330,13 +330,15 @@ sffs.created(5);
 
 ### open(*filename, mode*) ###
 
-This method opens the specified file with read or write permissions.
+This method opens the specified file with read permissions, or creates a new file.
 
 If you attempt to open a non-existent file in reading mode, a `SPIFLASHFILESYSTEM_ERROR.FILE_NOT_FOUND` error will be thrown.
 
+If you attempt to open an existing file in write (ie. create) mode, a `SPIFLASHFILESYSTEM_ERROR.FILE_EXISTS` error will be thrown.
+
 If you attempt to open a file with a value of *mode* other than `"r"` or `"w"`, a `SPIFLASHFILESYSTEM_ERROR.UNKNOWN_MODE` error will be thrown.
 
-If you create an empty file, it will be stored in cache only and will not be available after the next reboot, eg.
+When you create a file, it will be empty of data. While empty, it will be stored in cache only and will not be available after the next reboot. Close the file to persist it:
 
 ```squirrel
 // Create an empty file
@@ -348,7 +350,7 @@ sffs.open("filename.txt", "w").close();
 | Parameter | Type | Required? | Description |
 | --- | --- | --- | --- |
 | *filename* | String | Yes | The name of a file |
-| *mode* | String | Yes | How the file should be opened: `"r"` (for reading) or `"w"` (for writing) |
+| *mode* | String | Yes | How the file should be opened: `"r"` (for reading) or `"w"` (for writing, ie. file creation) |
 
 #### Return Value ####
 
