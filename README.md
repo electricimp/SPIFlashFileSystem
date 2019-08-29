@@ -334,15 +334,18 @@ This method opens the specified file with read permissions, or creates a new fil
 
 If you attempt to open a non-existent file in reading mode, a `SPIFLASHFILESYSTEM_ERROR.FILE_NOT_FOUND` error will be thrown.
 
-If you attempt to open an existing file in write (ie. create) mode, a `SPIFLASHFILESYSTEM_ERROR.FILE_EXISTS` error will be thrown.
+If you attempt to open an existing file in write mode (ie. create a file), a `SPIFLASHFILESYSTEM_ERROR.FILE_EXISTS` error will be thrown.
 
 If you attempt to open a file with a value of *mode* other than `"r"` or `"w"`, a `SPIFLASHFILESYSTEM_ERROR.UNKNOWN_MODE` error will be thrown.
 
-When you create a file, it will be empty of data. While empty, it will be stored in cache only and will not be available after the next reboot. Close the file to persist it:
+If you create an empty file, it will be stored in cache only and will not be available after the next reboot.
 
 ```squirrel
 // Create an empty file
 sffs.open("filename.txt", "w").close();
+
+// Note: The filename.txt cannot be reopened in "w" mode to be modified and 
+// will not be persisted after the device reboots.
 ```
 
 #### Parameters ####
