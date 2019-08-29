@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright 2017 Electric Imp
+// Copyright 2017-19 Electric Imp
 //
 // SPDX-License-Identifier: MIT
 //
@@ -36,20 +36,24 @@ class SffsFileApi extends BaseSffsTestCase {
         // payload buffer for tests
         buffer = "0123456789012345678901234567890123456789";
         // max iterations to ocupay all pages by a single file
-        iterations = pages * SPIFLASHFILESYSTEM_SECTOR_SIZE / buffer.len() - 10;
-        maxHeaderSize = SPIFLASHFILESYSTEM_HEADER_SIZE +
-            SPIFLASHFILESYSTEM_TIMESTAMP_SIZE;
+        iterations = pages * SPIFLASHFILESYSTEM_SIZE.SECTOR / buffer.len() - 10;
+        maxHeaderSize = SPIFLASHFILESYSTEM_SIZE.HEADER +
+            SPIFLASHFILESYSTEM_SIZE.TIMESTAMP;
     }
 
         //
         // Check that max size file
         function test01_writeMaxPagesFile() {
+            info("here");
+            info(sffs._collecting);
+            info(sffs._openFiles);
             local file = sffs.open(MAX_SIZE_FILE_FILENAME, "w");
+
             for (local i = 0; i < iterations; ++i)
                 file.write(buffer);
             // Check that all sectors are used
             local space = sffs.getFreeSpace();
-            assertTrue(space.free + space.freeable    < SPIFLASHFILESYSTEM_SECTOR_SIZE);
+            assertTrue(space.free + space.freeable < SPIFLASHFILESYSTEM_SIZE.SECTOR);
             file.close();
             // Check that file size is correct
             assertEqual(iterations * buffer.len(),
@@ -76,7 +80,7 @@ class SffsFileApi extends BaseSffsTestCase {
         function test03_maxFileSizeSeeking() {
             local file = sffs.open(MAX_SIZE_FILE_FILENAME, "r");
             local buffer = "0123456789012345678901234567890123456789";
-            local iterations = pages * SPIFLASHFILESYSTEM_SECTOR_SIZE / buffer.len() - 10;
+            local iterations = pages * SPIFLASHFILESYSTEM_SIZE.SECTOR / buffer.len() - 10;
             // random seek
             for (local i = 0; i < iterations; i += 10) {
                 local randSeek = math.rand() % iterations;
@@ -207,13 +211,13 @@ class SffsFileApi extends BaseSffsTestCase {
         // each file has heard therefore it is enough
         // to write page size payload to each file
         // to create an concurent access use-case
-        for (local i = 0; i < SPIFLASHFILESYSTEM_SECTOR_SIZE / buffer.len(); ++i) {
+        for (local i = 0; i < SPIFLASHFILESYSTEM_SIZE.SECTOR / buffer.len(); ++i) {
             file1.write(buffer);
             // an attemption to request next sector
             try {
                 file2.write(buffer);
             } catch (e) {
-                local expectedSize = SPIFLASHFILESYSTEM_SECTOR_SIZE -
+                local expectedSize = SPIFLASHFILESYSTEM_SIZE.SECTOR -
                     maxHeaderSize - filename.len() + 1;
                 // Trying to write more data then available space
                 assertTrue((i + 1) * buffer.len() > expectedSize);

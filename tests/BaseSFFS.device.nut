@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright 2017 Electric Imp
+// Copyright 2017-19 Electric Imp
 //
 // SPDX-License-Identifier: MIT
 //
@@ -54,7 +54,7 @@ class BaseSffsTestCase extends ImpTestCase {
             size = hardware.spiflash.size();
             hardware.spiflash.disable();
             // number of the available pages
-            pages = size / SPIFLASHFILESYSTEM_SECTOR_SIZE;
+            pages = size / SPIFLASHFILESYSTEM_SIZE.SECTOR;
 
             // init sffs
             sffs = SPIFlashFileSystem(0, size);
@@ -96,15 +96,16 @@ class BaseSffsTestCase extends ImpTestCase {
     //
     function makeBadPage(addr = null) {
         local page = (addr == null ? sffs._fat.getFreePage() : addr);
-        local header = blob(SPIFLASHFILESYSTEM_HEADER_SIZE);
+        local header = blob(SPIFLASHFILESYSTEM_SIZE.HEADER);
         header.writen(0, 'w'); // id is 0
         header.writen(0, 'w'); // span is 0
         header.writen(123, 'w'); // size is not null
 
-        sffs._enable();
+        local _flash = sffs._flash;
+        _flash.enable();
         // Erase the page headers
-        local res = sffs._flash.write(page, header, SPIFLASHFILESYSTEM_SPIFLASH_VERIFY);
-        sffs._disable();
+        local res = _flash.write(page, header, SPIFLASHFILESYSTEM_SPIFLASH_VERIFY);
+        _flash.disable();
     }
 
     //
