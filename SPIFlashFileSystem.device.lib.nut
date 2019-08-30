@@ -57,7 +57,7 @@ enum SPIFLASHFILESYSTEM_ERROR {
 
 class SPIFlashFileSystem {
     // Library version
-    static VERSION = "3.0.0";
+    static VERSION = "3.0.1";
 
     // Private:
     _flash = null;          // The SPI Flash object
@@ -766,7 +766,7 @@ class SPIFlashFileSystem.FAT {
         }
 
         // Check the file is valid
-        if (fileId == null || fname == null) throw SPIFlashFileSystem.SPIFLASHFILESYSTEM_ERROR.FILE_NOT_FOUND;
+        if (fileId == null || fname == null) throw SPIFLASHFILESYSTEM_ERROR.FILE_NOT_FOUND;
 
         // Add up the sizes
         local sizeTotal = 0, size = 0;
@@ -860,7 +860,7 @@ class SPIFlashFileSystem.FAT {
         }
 
         // If we haven't found one after garbage collection, theow error
-        if (next == null) throw SPIFlashFileSystem.SPIFLASHFILESYSTEM_ERROR.NO_FREE_SPACE;
+        if (next == null) throw SPIFLASHFILESYSTEM_ERROR.NO_FREE_SPACE;
 
         // If we did find a page, return it
         return _filesystem.dimensions().start + (next * SPIFLASHFILESYSTEM_SIZE.PAGE);
