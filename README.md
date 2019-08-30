@@ -1,8 +1,8 @@
-# SPIFlashFileSystem 3.0.0 #
+# SPIFlashFileSystem 3.0.1 #
 
 The SPIFlashFileSystem library implements a basic [wear leveling](https://en.wikipedia.org/wiki/Wear_leveling) file system intended for use with SPI Flash devices, such as the built-in [**hardware.spiflash**](https://developer.electricimp.com/api/hardware/spiflash) object available on the imp003 and above, or an external SPI Flash plus the [SPIFlash library](https://github.com/electricimp/spiflash) on the imp001 and imp002.
 
-**To include this library in your project, add** `#require "SPIFlashFileSystem.device.lib.nut:3.0.0"` **at the top of your device code.**
+**To include this library in your project, add** `#require "SPIFlashFileSystem.device.lib.nut:3.0.1"` **at the top of your device code.**
 
 ![Build Status](https://cse-ci.electricimp.com/app/rest/builds/buildType:(id:SPIFlashFileSystem_BuildAndTest)/statusIcon)
 
@@ -113,7 +113,7 @@ The SPIFlashFileSystem constructor allows you to specify the start and end bytes
 #### Example: imp003 And Above ####
 
 ```squirrel
-#require "SPIFlashFileSystem.device.lib.nut:3.0.0"
+#require "SPIFlashFileSystem.device.lib.nut:3.0.1"
 
 // Allocate the first 2MB to the file system
 sffs <- SPIFlashFileSystem(0x000000, 0x200000);
@@ -124,7 +124,7 @@ sffs.init();
 
 ```squirrel
 #require "SPIFlash.class.nut:1.0.1"
-#require "SPIFlashFileSystem.device.lib.nut:3.0.0"
+#require "SPIFlashFileSystem.device.lib.nut:3.0.1"
 
 // Configure the external SPIFlash
 flash <- SPIFlash(hardware.spi257, hardware.pin8);

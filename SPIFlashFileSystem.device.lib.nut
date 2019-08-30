@@ -57,7 +57,7 @@ enum SPIFLASHFILESYSTEM_ERROR {
 
 class SPIFlashFileSystem {
     // Library version
-    static VERSION = "3.0.0";
+    static VERSION = "3.0.1";
 
     // Private:
     _flash = null;          // The SPI Flash object
