@@ -531,11 +531,11 @@ class SPIFlashFileSystem {
         // Get the file
         local file = _fat.get(fileId);
 
-        // Create the result object
-        local result = blob();
-
         // Fix the default length to everything
         if (len == null) len = file.sizeTotal - start;
+
+        // Create the result object
+        local result = blob(len);
 
         // find the initial address
         local next = start, togo = len, pos = 0, page = null, size = null;
